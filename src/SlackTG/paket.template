@@ -1,0 +1,25 @@
+type project
+title
+    ##ProjectName##
+owners
+    Chet Husk
+authors 
+    Chet Husk
+projectUrl
+    http://github.com/baronfel/SlackTG
+iconUrl
+    https://raw.githubusercontent.com/baronfel/SlackTG/master/docs/files/img/logo.png
+licenseUrl
+    http://github.com/baronfel/SlackTG/blob/master/LICENSE.txt
+requireLicenseAcceptance
+    false
+copyright
+    Copyright 2015
+tags
+    f# slack magic mtg
+summary
+    A Slack slash command bot for querying the magic trading card game database
+description
+    A Slack slash command bot for querying the magic trading card game database
+
+
