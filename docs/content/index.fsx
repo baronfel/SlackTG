@@ -9,27 +9,10 @@ SlackTG
 
 Documentation
 
-<div class="row">
-  <div class="span1"></div>
-  <div class="span6">
-    <div class="well well-small" id="nuget">
-      The SlackTG library can be <a href="https://nuget.org/packages/SlackTG">installed from NuGet</a>:
-      <pre>PM> Install-Package SlackTG</pre>
-    </div>
-  </div>
-  <div class="span1"></div>
-</div>
-
 Example
 -------
 
-This example demonstrates using a function defined in this sample library.
-
 *)
-#r "SlackTG.dll"
-open SlackTG
-
-printfn "hello = %i" <| Library.hello 0
 
 (**
 Some more info
@@ -55,9 +38,9 @@ The library is available under Public Domain license, which allows modification 
 redistribution for both commercial and non-commercial purposes. For more information see the 
 [License file][license] in the GitHub repository. 
 
-  [content]: https://github.com/fsprojects/SlackTG/tree/master/docs/content
-  [gh]: https://github.com/fsprojects/SlackTG
-  [issues]: https://github.com/fsprojects/SlackTG/issues
-  [readme]: https://github.com/fsprojects/SlackTG/blob/master/README.md
-  [license]: https://github.com/fsprojects/SlackTG/blob/master/LICENSE.txt
+  [content]: https://github.com/baronfel/SlackTG/tree/master/docs/content
+  [gh]: https://github.com/baronfel/SlackTG
+  [issues]: https://github.com/baronfel/SlackTG/issues
+  [readme]: https://github.com/baronfel/SlackTG/blob/master/README.md
+  [license]: https://github.com/baronfel/SlackTG/blob/master/LICENSE.txt
 *)

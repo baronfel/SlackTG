@@ -10,10 +10,8 @@ Introducing your project
 Say more
 
 *)
-#r "SlackTG.dll"
-open SlackTG
 
-Library.hello 0
+
 (**
 Some more info
 *)
