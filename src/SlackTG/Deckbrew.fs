@@ -134,7 +134,7 @@ module Deckbrew =
                     | _ -> None
                 else None
 
-            match headers |> Map.tryFind (ResponseHeader.NonStandard "Link") with
+            match headers |> Map.tryFind ResponseHeader.Link with
             | None -> None, None
             | Some (link : string) -> 
                 let potentialLinks = link.Split([|','|], System.StringSplitOptions.RemoveEmptyEntries) |> Array.map (fun s -> s.Trim()) |> Array.map createLink |> Array.choose id
@@ -164,7 +164,10 @@ module Deckbrew =
                     match cardsResponse with
                     | None -> []
                     | Some cs -> 
-                        cs |> FSharp.Data.JsonValue.ParseMultiple |> Seq.map (fun v -> v.ToString()) |> Seq.map (Types.CardModel.Parse) |> Seq.toList
+                        let multiples = cs |> FSharp.Data.JsonValue.Parse |> FSharp.Data.JsonExtensions.AsArray |> Array.toList
+                        let stringified = multiples |> List.map string 
+                        let cards = stringified |> List.map (Types.CardModel.Parse)
+                        cards
 
                 let prev, next = parseLinks res.Headers
                 let cards = parseCards res.EntityBody

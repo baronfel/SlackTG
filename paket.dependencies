@@ -5,6 +5,8 @@ nuget Http.fs
 nuget FSharp.Data
 nuget FSharp.Text.RegexProvider
 nuget FSharp.Core
+nuget FParsec
+nuget FSharpx.Extras
 
 group Build
   source https://nuget.org/api/v2

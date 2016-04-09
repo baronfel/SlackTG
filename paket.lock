@@ -2,10 +2,19 @@ REDIRECTS: ON
 NUGET
   remote: https://www.nuget.org/api/v2
   specs:
+    FParsec (1.0.2)
+    FSharp.Control.AsyncSeq (2.0.8)
     FSharp.Core (4.0.0.1)
     FSharp.Data (2.2.5)
       Zlib.Portable (>= 1.10) - framework: portable-net40+sl50+wp80+win80
     FSharp.Text.RegexProvider (0.0.7)
+    FSharpx.Async (1.12)
+      FSharp.Control.AsyncSeq
+    FSharpx.Collections (1.14)
+      FSharp.Core (>= 3.0)
+    FSharpx.Extras (1.10.3)
+      FSharpx.Async (>= 1.12)
+      FSharpx.Collections (>= 1.10.1)
     Http.fs (1.5.1)
     Zlib.Portable (1.11) - framework: portable-net40+sl50+wp80+win80
 

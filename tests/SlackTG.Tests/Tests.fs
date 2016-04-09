@@ -14,3 +14,25 @@ let ``can do simple query``() =
     match response with
     | Choice2Of2 (errs) -> Assert.Fail(errs.Errors |> String.concat ";")
     | Choice1Of2 (cards) -> printf "%A" cards
+
+[<Test>]
+let ``can respond to pretend slack payload``() =
+    let slackFormPost = 
+        [
+            "token","lQ7BU6rfjWBYk2TpRaeRtJQN"
+            "team_id","T0001"
+            "team_domain","example"
+            "channel_id","C2147483705"
+            "channel_name","test"
+            "user_id","U2147483697"
+            "user_name","Steve"
+            "command","/mtg"
+            "text","cards"
+            "response_url","https://hooks.slack.com/commands/1234/5678"
+        ] |> Map
+
+    let response = 
+        Slack.handler slackFormPost
+        |> Async.RunSynchronously
+    printf "%s" response
+    Assert.That(not <| response.Contains("Error:"))
