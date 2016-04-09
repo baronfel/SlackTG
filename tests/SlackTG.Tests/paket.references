@@ -1,3 +1,7 @@
+FSharp.Data
+FSharp.Text.RegexProvider
+FSharp.Core
+
 group Test
 NUnit
 NUnit.Runners

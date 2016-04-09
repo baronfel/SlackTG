@@ -1,4 +1,10 @@
 source https://nuget.org/api/v2
+redirects: on
+
+nuget Http.fs
+nuget FSharp.Data
+nuget FSharp.Text.RegexProvider
+nuget FSharp.Core
 
 group Build
   source https://nuget.org/api/v2
