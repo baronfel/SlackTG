@@ -169,23 +169,6 @@ Target "SourceLink" (fun _ ->
 
 #endif
 
-// --------------------------------------------------------------------------------------
-// Build a NuGet package
-
-Target "NuGet" (fun _ ->
-    Paket.Pack(fun p ->
-        { p with
-            OutputPath = "bin"
-            Version = release.NugetVersion
-            ReleaseNotes = toLines release.Notes})
-)
-
-Target "PublishNuget" (fun _ ->
-    Paket.Push(fun p ->
-        { p with
-            WorkingDir = "bin" })
-)
-
 
 // --------------------------------------------------------------------------------------
 // Generate the documentation
@@ -382,14 +365,6 @@ Target "All" DoNothing
   ==> "All"
   =?> ("ReleaseDocs",isLocalBuild)
 
-"All"
-#if MONO
-#else
-  =?> ("SourceLink", Pdbstr.tryFind().IsSome )
-#endif
-  ==> "NuGet"
-  ==> "BuildPackage"
-
 "CleanDocs"
   ==> "GenerateHelp"
   ==> "GenerateReferenceDocs"
@@ -402,10 +377,6 @@ Target "All" DoNothing
   ==> "KeepRunning"
 
 "ReleaseDocs"
-  ==> "Release"
-
-"BuildPackage"
-  ==> "PublishNuget"
   ==> "Release"
 
 RunTargetOrDefault "All"
