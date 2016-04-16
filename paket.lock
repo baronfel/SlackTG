@@ -16,6 +16,8 @@ NUGET
       FSharpx.Async (>= 1.12)
       FSharpx.Collections (>= 1.10.1)
     Http.fs (1.5.1)
+    Suave (1.1.2)
+      FSharp.Core (>= 3.1.2.5)
     Zlib.Portable (1.11) - framework: portable-net40+sl50+wp80+win80
 
 GROUP Build

@@ -1,6 +1,7 @@
 FSharp.Data
 FSharp.Text.RegexProvider
 FSharp.Core
+Suave
 
 group Test
 NUnit

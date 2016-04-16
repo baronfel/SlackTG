@@ -79,82 +79,14 @@ module Slack =
             response_url : System.Uri
         }
 
-    module Parsing = 
-        open FSharpx.Option
-        open InboundTypes
-        open Commands
-        open FSharp.Data
-        open OutboundTypes 
-
-        let parseCardsArgs args = Map.empty
-
-        let parseCommand commandName args = 
-            match commandName with
-            | "mtg" -> 
-                match args with
-                | "help"::_ -> Some Help
-                | "cards"::cardArgs -> 
-                    let args' = parseCardsArgs cardArgs
-                    Some <| Cards args'
-                | _ -> None
-            | _ -> None
-
-        let tryParseUri uri = 
-            match System.Uri.TryCreate(uri, System.UriKind.Absolute) with
-            | true, uri' -> Some uri'
-            | _ -> None
-
-        let parseSlackArgs (formPost : Map<string,string>) : SlackArgs option = 
-            let inline findInForm k = Map.tryFind k formPost
-            maybe {
-                let! token = findInForm "token"
-                let! team_id = findInForm "team_id"
-                let! team_domain = findInForm "team_domain"
-                let! channel_id = findInForm "channel_id"
-                let! channel_name = findInForm "channel_name"
-                let! user_id = findInForm "user_id"
-                let! user_name = findInForm "user_name"
-                let! command = findInForm "command" |> Option.map (fun c -> c.TrimStart('/').ToLowerInvariant())
-                let! args = findInForm "text" |> Option.map (fun argString -> argString.Split([|' '|], System.StringSplitOptions.RemoveEmptyEntries) |> List.ofArray)
-                let! response_url = findInForm "response_url" |> Option.bind tryParseUri
-            
-                let team = { id = team_id; domain = team_domain }
-                let channel = { ChannelInfo.id = channel_id; name = channel_name }
-                let user = { UserInfo.id = user_id; name = user_name }
-                let! command = parseCommand command args
-                return {token = token; team = team; channel = channel; user = user; command = command; response_url = response_url}
-            }
-
-        let writeAttachment attachment =  
-            let props = Attachment.nameValue attachment
-            let markdownProp = [ "mrkdwn_in", props |> Array.ofSeq |> Array.filter (snd >> (fun v -> match v with | Markdown _ -> true | _ -> false)) |> Array.map (fst >> JsonValue.Parse) |> JsonValue.Array ]
-            let initial = 
-                props
-                |> Seq.map (fun (name,value) -> name, (value.Text |> JsonValue.String) )
-                
-            Seq.append initial markdownProp
-            |> Array.ofSeq
-            |> JsonValue.Record
-
-        let writeSlackResponse slackResponse =  
-            [| ("Attachments", slackResponse |> Array.map writeAttachment |> JsonValue.Array) |]
-            |> JsonValue.Record
-    
     open OutboundTypes
-    open FSharpx.Option
 
     let confusedResponse : SlackResponse = 
         [|
             {Title = Some <| Plain "Unknown command"; PreText = None; Text = Some <| Plain "Sorry, I didn't understand that request."}
         |]
 
-    let handler : Map<string, string> -> Async<string> = 
-        fun formPost -> 
-                formPost 
-                |> Parsing.parseSlackArgs
-                |> Option.map (fun a -> a.command)
-                |> Option.map Commands.handleCommand
-                |> getOrElse (async { return confusedResponse })
-                |> FSharpx.Async.map Parsing.writeSlackResponse
-                |> FSharpx.Async.map string
+    let getCommand (args : InboundTypes.SlackArgs) = args.command
+
+    let handleSlackCommand = getCommand >> Commands.handleCommand
                 

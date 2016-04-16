@@ -3,3 +3,4 @@
 #load "load-references-debug.fsx"
 #load "../Deckbrew.fs"
       "../Slack.fs"
+      "../Suave.fs"

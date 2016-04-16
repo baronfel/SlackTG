@@ -29,10 +29,15 @@ let ``can respond to pretend slack payload``() =
             "command","/mtg"
             "text","cards"
             "response_url","https://hooks.slack.com/commands/1234/5678"
-        ] |> Map
+        ]
+        |> List.map (fun (k,v) -> sprintf "%s=%s" k v) 
+        |> String.concat "&"
+        |> System.Text.Encoding.UTF8.GetBytes
+        |> fun bs -> { Suave.Http.HttpRequest.empty with rawForm = bs }
 
     let response = 
-        Slack.handler slackFormPost
+        Suave.handleMessage slackFormPost
         |> Async.RunSynchronously
+        |> string
     printf "%s" response
     Assert.That(not <| response.Contains("Error:"))
