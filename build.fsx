@@ -133,9 +133,9 @@ Target "Build" (fun _ ->
     let buildParams (p : MSBuildParams) = 
         { p with
 #if MONO
-            Properties = ["DefineConstants","MONO"]
+            Properties = ["DefineConstants","MONO"; "Configuration", "Release"; "Platform", "Any CPU"]
 #else
-            Properties = []
+            Properties = ["Configuration", "Release"; "Platform", "Any CPU"]
 #endif
             Targets = ["Rebuild"]
             Verbosity = Some MSBuildVerbosity.Detailed
