@@ -1,14 +1,13 @@
 source https://nuget.org/api/v2
 redirects: on
 
-nuget Http.fs
 nuget FSharp.Data
 nuget FSharp.Text.RegexProvider
 nuget FSharp.Core
 nuget FParsec
 nuget FSharpx.Extras
 nuget Suave
-nuget Chiron
+nuget Microsoft.AspNet.WebApi.Client
 
 group Build
   source https://nuget.org/api/v2

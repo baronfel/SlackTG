@@ -6,10 +6,10 @@ open Deckbrew
 
 [<Test>]
 let ``can do simple query``() =
-    let query = [|
+    let query = [
         API.Color Types.Green
         API.Format Types.Commander
-    |]
+    ]
     let response = API.getCards query |> Async.RunSynchronously
     match response with
     | Choice2Of2 (errs) -> Assert.Fail(errs.Errors |> String.concat ";")

@@ -2,7 +2,6 @@
 #I __SOURCE_DIRECTORY__
 #r "../../../packages/FSharp.Data/lib/net40/FSharp.Data.dll"
 #r "../../../packages/FSharp.Text.RegexProvider/lib/net40/FSharp.Text.RegexProvider.dll"
-#r "../../../packages/Http.fs/lib/net40/HttpClient.dll"
 #r "System.Core.dll"
 #r "System.dll"
 #r "System.Numerics.dll"
@@ -14,5 +13,6 @@
 #r "../../../packages/FSharpx.Collections/lib/net40/FSharpx.Collections.dll"
 #r "../../../packages/FSharpx.Extras/lib/40/FSharpx.Extras.dll"
 #r "../../../packages/Suave/lib/net40/Suave.dll"
-#r "../../../packages/Aether/lib/net35/Aether.dll"
-#r "../../../packages/Chiron/lib/net40/Chiron.dll"
+#r "../../../packages/Newtonsoft.Json/lib/net45/Newtonsoft.Json.dll"
+#r "System.Net.Http.dll"
+#r "../../../packages/Microsoft.AspNet.WebApi.Client/lib/net45/System.Net.Http.Formatting.dll"

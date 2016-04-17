@@ -2,10 +2,6 @@ REDIRECTS: ON
 NUGET
   remote: https://www.nuget.org/api/v2
   specs:
-    Aether (8.1.2)
-    Chiron (6.1)
-      Aether (>= 8.0.2 < 9.0)
-      FParsec (>= 1.0 < 2.0)
     FParsec (1.0.2)
     FSharp.Control.AsyncSeq (2.0.8)
     FSharp.Core (4.0.0.1)
@@ -19,7 +15,16 @@ NUGET
     FSharpx.Extras (1.10.3)
       FSharpx.Async (>= 1.12)
       FSharpx.Collections (>= 1.10.1)
-    Http.fs (1.5.1)
+    Microsoft.AspNet.WebApi.Client (5.2.3)
+      Microsoft.Net.Http (>= 2.2.22) - framework: portable-wp80+win+net45+wp81+wpa81
+      Newtonsoft.Json (>= 6.0.4) - framework: >= net45, portable-wp80+win+net45+wp81+wpa81
+    Microsoft.Bcl (1.1.10) - framework: portable-wp80+win+net45+wp81+wpa81
+      Microsoft.Bcl.Build (>= 1.0.14)
+    Microsoft.Bcl.Build (1.0.21) - import_targets: false, framework: portable-wp80+win+net45+wp81+wpa81
+    Microsoft.Net.Http (2.2.29) - framework: portable-wp80+win+net45+wp81+wpa81
+      Microsoft.Bcl (>= 1.1.10)
+      Microsoft.Bcl.Build (>= 1.0.14)
+    Newtonsoft.Json (8.0.3) - framework: >= net45, portable-wp80+win+net45+wp81+wpa81
     Suave (1.1.2)
       FSharp.Core (>= 3.1.2.5)
     Zlib.Portable (1.11) - framework: portable-net40+sl50+wp80+win80

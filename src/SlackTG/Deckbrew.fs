@@ -1,9 +1,16 @@
 ﻿namespace SlackTG
 
+module Async =  
+    open System.Threading.Tasks
+
+    type AsyncBuilder with
+        member x.Bind (t: Task<_>, f : 'a -> Async<_>) = async.Bind(Async.AwaitTask t, f)
+
 /// a lightweight wrapper around the api for Deckbrew <https://deckbrew.com/api/>, a MtG card api 
 module Deckbrew =
     module Types = 
         open FSharp.Data
+
         let getJsonStrings file = 
             file 
             |> System.IO.File.ReadAllText
@@ -14,9 +21,9 @@ module Deckbrew =
         type CardModel = JsonProvider< @"../../samples/cards.json", SampleIsList = true, RootName = "card", InferTypesFromValues = true>
         type SetsModel = JsonProvider< @"../../samples/sets.json", SampleIsList = true, RootName = "set", InferTypesFromValues = true>
         
-        let CardTypes = getJsonStrings "samples/types.json"
-        let SubTypes = getJsonStrings "samples/subtypes.json"
-        let SuperTypes = getJsonStrings "samples/supertypes.json"
+        //let CardTypes = getJsonStrings "samples/types.json"
+        //let SubTypes = getJsonStrings "samples/subtypes.json"
+        //let SuperTypes = getJsonStrings "samples/supertypes.json"
 
         type Rarity = Common | Uncommon | Rare | Mythic
         with override x.ToString() = match x with | Common -> "common" | Uncommon -> "uncommon" | Rare -> "rare" | Mythic -> "mythic"
@@ -31,25 +38,25 @@ module Deckbrew =
         with override x.ToString() = match x with | Legal -> "legal" | Banned -> "banned" | Restricted -> "restricted"
 
         type CardType = CardType of string
-        with 
-            static member create (t : string) = 
-                if CardTypes |> Array.exists (fun s -> s.Equals(t, System.StringComparison.OrdinalIgnoreCase))
-                then CardType <| t.ToLower() |> Some
-                else None
+//        with 
+//            static member create (t : string) = 
+//                if CardTypes |> Array.exists (fun s -> s.Equals(t, System.StringComparison.OrdinalIgnoreCase))
+//                then CardType <| t.ToLower() |> Some
+//                else None
         
         type SubType = SubType of string
-        with
-            static member create (t : string) =
-                if SubTypes |> Array.exists (fun s -> s.Equals(t, System.StringComparison.OrdinalIgnoreCase))
-                then SubType <| t.ToLower() |> Some
-                else None
+//        with
+//            static member create (t : string) =
+//                if SubTypes |> Array.exists (fun s -> s.Equals(t, System.StringComparison.OrdinalIgnoreCase))
+//                then SubType <| t.ToLower() |> Some
+//                else None
 
         type SuperType = SuperType of string
-        with
-            static member create (t : string) = 
-                if SuperTypes |> Array.exists (fun s -> s.Equals(t, System.StringComparison.OrdinalIgnoreCase))
-                then SuperType <| t.ToLower() |> Some
-                else None
+//        with
+//            static member create (t : string) = 
+//                if SuperTypes |> Array.exists (fun s -> s.Equals(t, System.StringComparison.OrdinalIgnoreCase))
+//                then SuperType <| t.ToLower() |> Some
+//                else None
 
         /// the model returned by Deckbrew for any 400+ status code
         type Error = {
@@ -60,10 +67,13 @@ module Deckbrew =
         type Linked<'a> = { Payload : 'a; Next : System.Uri option; Prev : System.Uri option }
 
     module API = 
-        open HttpClient
         open FSharp.Text.RegexProvider
+        open System
+        open System.Net.Http
+        open Async
+        open System.Net.Http.Headers
 
-        let root = "https://api.deckbrew.com/mtg"
+        let root = Uri("https://api.deckbrew.com",UriKind.Absolute)
 
         type getRequestParameter = 
             | Type of Types.CardType
@@ -110,11 +120,8 @@ module Deckbrew =
             | Status s -> string s 
 
         let parseErrorResponse resp =
-            match resp with
-            | None -> { Types.Error.Errors = [] }
-            | Some r -> 
-                let errs = r |> FSharp.Data.JsonValue.ParseMultiple |> Seq.map FSharp.Data.JsonExtensions.AsString |> List.ofSeq
-                { Errors = errs }
+            let errs = resp |> FSharp.Data.JsonValue.ParseMultiple |> Seq.map FSharp.Data.JsonExtensions.AsString |> List.ofSeq
+            { Types.Error.Errors = errs }
         
         let uriLink link = 
             match link with
@@ -123,7 +130,7 @@ module Deckbrew =
 
         type LinkProvider = Regex<"<(?<uri>[\S]*)>;\srel=\"(?<rel>next|prev)\"">
 
-        let parseLinks headers =
+        let parseLinks (headers : HttpResponseHeaders) =
             let createLink s =
                 let m = LinkProvider().Match(s)
                 if m.Success 
@@ -134,53 +141,51 @@ module Deckbrew =
                     | _ -> None
                 else None
 
-            match headers |> Map.tryFind ResponseHeader.Link with
-            | None -> None, None
-            | Some (link : string) -> 
-                let potentialLinks = link.Split([|','|], System.StringSplitOptions.RemoveEmptyEntries) |> Array.map (fun s -> s.Trim()) |> Array.map createLink |> Array.choose id
-                let prevs, nexts = potentialLinks |> Array.partition (fun l -> match l with Types.Prev _ -> true | _ -> false)
-                Array.tryHead prevs, Array.tryHead nexts
+            match headers.GetValues("Link") |> Seq.toList with
+            | [] -> None, None
+            | links -> 
+                let potentialLinks = links |> List.map (fun s -> s.Trim()) |> List.choose createLink
+                let prevs, nexts = potentialLinks |> List.partition (fun l -> match l with Types.Prev _ -> true | _ -> false)
+                List.tryHead prevs, List.tryHead nexts
         
-        let doRequest r successF = 
+        let doRequest (uri : Uri) successF = 
             async {
-                let! response = getResponseAsync r
-                if response.StatusCode >= 400
-                then return response.EntityBody |> parseErrorResponse |> Choice2Of2
-                else return successF response |> Choice1Of2
+                use client = new HttpClient()
+                let! response = client.GetAsync(uri)
+                let! content = response.Content.ReadAsStringAsync()
+
+                if not response.IsSuccessStatusCode
+                then return content |> parseErrorResponse |> Choice2Of2
+                else return successF response.Headers content |> Choice1Of2
             }
 
-        let getCards : #seq<getRequestParameter> -> Async<Choice<Types.Linked<Types.CardModel.Card list>, Types.Error>> =
-            let qsParamToNameValue qsp = 
-                { name = getQSName qsp
-                  value = getQSValue qsp }
+        let getCards : getRequestParameter list -> Async<Choice<Types.Linked<Types.CardModel.Card list>, Types.Error>> =
+            let qsParamToNameValue qsp = getQSName qsp, getQSValue qsp
 
-            let addQueryString (parameters : #seq<getRequestParameter>) request = 
-                parameters 
-                |> Seq.map qsParamToNameValue
-                |> Seq.fold (fun request p -> withQueryStringItem p request) request
-
-            let parseCards res =
+            let parseCards (headers : HttpResponseHeaders) (content : string) =
                 let parseCards cardsResponse = 
                     match cardsResponse with
-                    | None -> []
-                    | Some cs -> 
+                    | "" -> []
+                    | cs -> 
                         let multiples = cs |> FSharp.Data.JsonValue.Parse |> FSharp.Data.JsonExtensions.AsArray |> Array.toList
                         let stringified = multiples |> List.map string 
                         let cards = stringified |> List.map (Types.CardModel.Parse)
                         cards
 
-                let prev, next = parseLinks res.Headers
-                let cards = parseCards res.EntityBody
+                let prev, next = parseLinks headers
+                let cards = parseCards content
                 { Types.Linked.Payload = cards; Types.Linked.Next = Option.map uriLink next; Types.Linked.Prev = Option.map uriLink prev; }
 
-            fun p ->
-                let req = 
-                    createRequest Get (sprintf "%s/cards" root)
-                    |> addQueryString p
-                doRequest req parseCards
+            let cardsUri = Uri(root, "/mtg/cards")
+
+            fun ps ->
+                let initialQS = cardsUri.ParseQueryString() // get empty collection
+                let qs = ps |> List.map qsParamToNameValue |> List.iter (fun (name, value) -> initialQS.Add(name, value);) |> string
+                let newUri = UriBuilder(cardsUri)
+                newUri.Query <- qs
+                doRequest newUri.Uri parseCards
         
         let getCard : string -> Async<Choice<Types.CardModel.Card, Types.Error>> =
             fun id -> 
-                let req = 
-                    createRequest Get (sprintf "%s/cards/%s" root id)
-                doRequest req (fun r -> r.EntityBody.Value |> Types.CardModel.Parse)
+                let uri = Uri(root, sprintf "/mtg/cards/%s" id)
+                doRequest uri (fun headers content -> Types.CardModel.Parse content)
