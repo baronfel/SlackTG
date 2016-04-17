@@ -130,13 +130,17 @@ Target "CleanDocs" (fun _ ->
 // Build library & test project
 
 Target "Build" (fun _ ->
-    !! solutionFile
+    let buildParams (p : MSBuildParams) = 
+        { p with
 #if MONO
-    |> MSBuildReleaseExt "" [ ("DefineConstants","MONO") ] "Rebuild"
+            Properties = ["DefineConstants","MONO"]
 #else
-    |> MSBuildRelease "" "Rebuild"
+            Properties = []
 #endif
-    |> ignore
+            Targets = ["Rebuild"]
+            Verbosity = Some MSBuildVerbosity.Detailed
+        }
+    build buildParams solutionFile
 )
 
 // --------------------------------------------------------------------------------------

@@ -18,9 +18,17 @@ let main [| port |] =
 
     let config = 
         { defaultConfig with
-            bindings = [ HttpBinding.mk HTTP IPAddress.Loopback (uint16 port) ] //TODO: https binding with custom cert
+            bindings = 
+                [ 
+                    HttpBinding.mk HTTP (IPAddress.Parse("0.0.0.0")) (uint16 port) 
+                    HttpBinding.mk HTTP IPAddress.Any (uint16 port) 
+                    HttpBinding.mk HTTP IPAddress.Loopback (uint16 port)
+                    HttpBinding.mk HTTP IPAddress.IPv6Any (uint16 port)
+                    HttpBinding.mk HTTP IPAddress.IPv6Loopback (uint16 port)
+                    //TODO: https binding with custom cert
+                ] 
             listenTimeout = TimeSpan.FromSeconds 1. 
-            //logger = logger 
+            logger = Suave.Logging.Loggers.saneDefaultsFor Logging.LogLevel.Verbose
             cancellationToken = cts.Token }
     printfn "starting server at port %s" port
     startWebServer config SlackTG.Suave.app
