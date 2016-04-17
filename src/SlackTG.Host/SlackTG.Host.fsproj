@@ -72,7 +72,9 @@
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Numerics" />
-    <ProjectReference Include="..\src\SlackTG\SlackTG.fsproj">
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SlackTG\SlackTG.fsproj">
       <Name>SlackTG</Name>
       <Project>{2ae8c44e-5d7b-4516-84a7-9d7cd2ee4317}</Project>
       <Private>True</Private>
