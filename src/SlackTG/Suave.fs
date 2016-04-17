@@ -44,26 +44,26 @@ module Parsing =
 module Suave =
 
     open Suave
-    open Suave.Successful
+    open Suave.Successful  
+    open Suave.Filters
+    open Suave.Operators
+    open Suave.Writers
+    open Suave.Json
 
-    open FSharpx.Option
-    open FSharpx.Async
     open Slack.InboundTypes
     open Parsing
-
-    open Suave.Filters
-
+       
     let extractFormFields (request: HttpRequest) = 
         let map = request.form |> Map
         let inline findInForm k (f : string -> 'b) = 
-            maybe {
+            FSharpx.Option.maybe {
                 let! result = Map.tryFind k map
                 match result with
                 | None -> return! None
                 | Some r -> return f r
             }
 
-        maybe {
+        FSharpx.Option.maybe {
             let! token = findInForm "token" id
             let! team_id = findInForm "team_id" id
             let! team_domain = findInForm "team_domain" id
@@ -85,12 +85,19 @@ module Suave =
     let handleMessage (request : HttpRequest) = 
         extractFormFields request
         |> Option.map Slack.handleSlackCommand
-        |> getOrElse (async { return Slack.confusedResponse })
+        |> FSharpx.Option.getOrElse (async { return Slack.confusedResponse })
 
-    let requestWebPart (request : HttpRequest) : WebPart = fun (ctx : HttpContext) ->
-        async {
-            let! slackResponse = handleMessage request
-            return! OK (string slackResponse) ctx
-        }
+    let as_json item : WebPart = 
+        let json = Parsing.writeSlackResponse item
+        json |> string |> OK
+        >=> setMimeType "application/json;charset=utf-8" 
 
-    //let app = POST >=> path "/message" >=> request requestWebPart // the 'path "/message"' segment says 'expecting HttpContext option -> Async <'a>' but got 'WebPart' and I'm all flummoxed
+    let requestWebPart (request : HttpRequest) : WebPart = 
+        let slackResponse = handleMessage request |> Async.RunSynchronously
+        as_json slackResponse
+
+    let app : WebPart = 
+        choose [
+            GET >=> path "/" >=> OK "alive"
+            POST >=> path "/message" >=> request requestWebPart
+        ]

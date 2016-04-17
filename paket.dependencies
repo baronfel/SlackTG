@@ -8,6 +8,7 @@ nuget FSharp.Core
 nuget FParsec
 nuget FSharpx.Extras
 nuget Suave
+nuget Chiron
 
 group Build
   source https://nuget.org/api/v2

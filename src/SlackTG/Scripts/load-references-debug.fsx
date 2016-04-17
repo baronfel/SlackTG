@@ -14,3 +14,5 @@
 #r "../../../packages/FSharpx.Collections/lib/net40/FSharpx.Collections.dll"
 #r "../../../packages/FSharpx.Extras/lib/40/FSharpx.Extras.dll"
 #r "../../../packages/Suave/lib/net40/Suave.dll"
+#r "../../../packages/Aether/lib/net35/Aether.dll"
+#r "../../../packages/Chiron/lib/net40/Chiron.dll"
