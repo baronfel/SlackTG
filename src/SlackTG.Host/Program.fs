@@ -6,31 +6,34 @@ open SlackTG
 open System.Net
 open System
 open System.Threading
+open Logary
+open Suave.Logging
+open Logary.Configuration.Config
+open Logary.Targets
+open Logary.Adapters.Facade
 
 [<EntryPoint>]
-let main [| port |] = 
-    let logger = 
-        { new Suave.Logging.Logger with 
-            member x.Log level lineFormat = 
-                let line = lineFormat()
-                printfn "[%A] %s: %s" line.level (DateTime.UtcNow.ToString("o")) line.message        }
+let main argv = 
     let cts = new CancellationTokenSource()
-
+    let logary =
+        withLogaryManager "SlackTG" (
+            withTargets [
+                LiterateConsole.create LiterateConsole.empty "console"
+                Debugger.create Debugger.empty "debugger"
+            ] 
+            >> withRules [
+                Rule.createForTarget "console"
+                Rule.createForTarget "debugger"
+            ]
+        ) |> Hopac.Hopac.run
+        
     let config = 
         { defaultConfig with
-            bindings = 
-                [ 
-                    HttpBinding.mk HTTP (IPAddress.Parse("0.0.0.0")) (uint16 port) 
-                    HttpBinding.mk HTTP IPAddress.Any (uint16 port) 
-                    HttpBinding.mk HTTP IPAddress.Loopback (uint16 port)
-                    HttpBinding.mk HTTP IPAddress.IPv6Any (uint16 port)
-                    HttpBinding.mk HTTP IPAddress.IPv6Loopback (uint16 port)
-                    //TODO: https binding with custom cert
-                ] 
             listenTimeout = TimeSpan.FromSeconds 1. 
-            logger = Suave.Logging.Loggers.saneDefaultsFor Logging.LogLevel.Verbose
             cancellationToken = cts.Token }
-    printfn "starting server at port %s" port
+
+    LogaryFacadeAdapter.initialise<Suave.Logging.Logger> logary
+
     startWebServer config SlackTG.Suave.app
     Console.ReadLine() |> ignore
     cts.Cancel()

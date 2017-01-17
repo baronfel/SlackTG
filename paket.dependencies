@@ -1,11 +1,15 @@
 source https://nuget.org/api/v2
 redirects: on
+framework: net461
 
 nuget FSharp.Data
 nuget FSharp.Text.RegexProvider
 nuget FSharp.Core
 nuget FParsec
 nuget FSharpx.Extras
+nuget Http.fs
+nuget Logary.Adapters.Facade
+nuget Logary.Adapters.Suave
 nuget Suave
 nuget Microsoft.AspNet.WebApi.Client
 

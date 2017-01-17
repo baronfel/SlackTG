@@ -8,7 +8,14 @@ module Parsing =
     open FSharp.Data
     open OutboundTypes 
 
-    let parseCardsArgs args = Map.empty
+    let parseCardsArgs (args : string list) =
+        args
+        |> List.map (String.split '=' >> fun l -> List.item 0 l,  List.item 1 l)
+        |> List.fold (fun m (k,v) ->
+            match m |> Map.tryFind k with
+            | None -> m |> Map.add k [v]
+            | Some vs -> m |> Map.add k (v :: vs)
+        ) Map.empty
 
     let writeAttachment attachment =  
         let props = Attachment.nameValue attachment
@@ -21,20 +28,25 @@ module Parsing =
         |> Array.ofSeq
         |> JsonValue.Record
 
-    let writeSlackResponse slackResponse =  
-        [| ("Attachments", slackResponse |> Array.map writeAttachment |> JsonValue.Array) |]
+    let writeSlackResponse (slackResponse : SlackResponse) =  
+        [| "attachments", slackResponse.Attachments |> Array.map writeAttachment |> JsonValue.Array
+           "response_type", string slackResponse.ResponseType |> JsonValue.String |]
         |> JsonValue.Record
 
     let tryParseUri uri = 
         match System.Uri.TryCreate(uri, System.UriKind.Absolute) with
         | true, uri' -> Some uri'
         | _ -> None
+    
+    let makeCardName (parts : string list) = 
+        parts |> String.concat " "
 
     let parseCommand commandName args = 
         match commandName with
         | "mtg" -> 
             match args with
             | "help"::_ -> Some Help
+            | "card"::nameparts -> Some <| Card (makeCardName nameparts)
             | "cards"::cardArgs -> 
                 let args' = parseCardsArgs cardArgs
                 Some <| Cards args'
@@ -87,14 +99,14 @@ module Suave =
         |> Option.map Slack.handleSlackCommand
         |> FSharpx.Option.getOrElse (async { return Slack.confusedResponse })
 
-    let as_json item : WebPart = 
+    let asJson item : WebPart = 
         let json = Parsing.writeSlackResponse item
         json |> string |> OK
         >=> setMimeType "application/json;charset=utf-8" 
 
     let requestWebPart (request : HttpRequest) : WebPart = 
         let slackResponse = handleMessage request |> Async.RunSynchronously
-        as_json slackResponse
+        asJson slackResponse
 
     let app : WebPart = 
         choose [

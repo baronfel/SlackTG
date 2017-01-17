@@ -1,2 +1,6 @@
 Fsharp.Core
 Suave
+FSharpx.Extras
+Hopac
+Logary.Adapters.Suave
+Logary.Adapters.Facade
