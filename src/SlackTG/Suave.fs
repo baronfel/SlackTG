@@ -8,15 +8,6 @@ module Parsing =
     open FSharp.Data
     open OutboundTypes 
 
-    let parseCardsArgs (args : string list) =
-        args
-        |> List.map (String.split '=' >> fun l -> List.item 0 l,  List.item 1 l)
-        |> List.fold (fun m (k,v) ->
-            match m |> Map.tryFind k with
-            | None -> m |> Map.add k [v]
-            | Some vs -> m |> Map.add k (v :: vs)
-        ) Map.empty
-
     let writeAttachment attachment =  
         let props = Attachment.nameValue attachment
         let markdownProp = [ "mrkdwn_in", props |> Array.ofSeq |> Array.filter (snd >> (fun v -> match v with | Markdown _ -> true | _ -> false)) |> Array.map (fst >> JsonValue.Parse) |> JsonValue.Array ]
@@ -29,28 +20,13 @@ module Parsing =
         |> JsonValue.Record
 
     let writeSlackResponse (slackResponse : SlackResponse) =  
-        [| "attachments", slackResponse.Attachments |> Array.map writeAttachment |> JsonValue.Array
+        [| "attachments", slackResponse.Attachments |> Array.ofList |> Array.map writeAttachment |> JsonValue.Array
            "response_type", string slackResponse.ResponseType |> JsonValue.String |]
         |> JsonValue.Record
 
     let tryParseUri uri = 
         match System.Uri.TryCreate(uri, System.UriKind.Absolute) with
         | true, uri' -> Some uri'
-        | _ -> None
-    
-    let makeCardName (parts : string list) = 
-        parts |> String.concat " "
-
-    let parseCommand commandName args = 
-        match commandName with
-        | "mtg" -> 
-            match args with
-            | "help"::_ -> Some Help
-            | "card"::nameparts -> Some <| Card (makeCardName nameparts)
-            | "cards"::cardArgs -> 
-                let args' = parseCardsArgs cardArgs
-                Some <| Cards args'
-            | _ -> None
         | _ -> None
 
 module Suave =
@@ -90,26 +66,56 @@ module Suave =
             let team = { id = team_id; domain = team_domain }
             let channel = { ChannelInfo.id = channel_id; name = channel_name }
             let user = { UserInfo.id = user_id; name = user_name }
-            let! command = parseCommand command args
-            return {token = token; team = team; channel = channel; user = user; command = command; response_url = response_url}
+            //let! command = parseCommand command args
+            return {token = token; team = team; channel = channel; user = user; command = command; args = args; response_url = response_url}
         }
-        
-    let handleMessage (request : HttpRequest) = 
-        extractFormFields request
-        |> Option.map Slack.handleSlackCommand
-        |> FSharpx.Option.getOrElse (async { return Slack.confusedResponse })
 
     let asJson item : WebPart = 
         let json = Parsing.writeSlackResponse item
         json |> string |> OK
         >=> setMimeType "application/json;charset=utf-8" 
 
-    let requestWebPart (request : HttpRequest) : WebPart = 
-        let slackResponse = handleMessage request |> Async.RunSynchronously
+    let slackApp (commands : Map<string, Slack.SlackCommand>) (request : HttpRequest) : WebPart = 
+        let helpResponse = 
+            let usages = commands |> Map.toSeq |> Seq.map (snd >> fun c -> c.usage |> Slack.OutboundTypes.Attachment.simple) |> Seq.toList
+            { Slack.OutboundTypes.SlackResponse.ofAttachments (Slack.confusedResponse :: usages) with ResponseType = Slack.OutboundTypes.Ephemeral }
+        let slackRequest = extractFormFields request
+        let slackResponse =
+            match slackRequest with
+            | Some slackMessage -> 
+                match commands |> Map.tryFind slackMessage.command with
+                | Some command -> 
+                    command.handler slackMessage.args |> Async.RunSynchronously
+                | None -> helpResponse
+            | None -> helpResponse
+                
         asJson slackResponse
+    
+    let cardCommand : Slack.SlackCommand = { name = "card" 
+                                             usage = "card CARDNAME" 
+                                             handler = Slack.Commands.handleCard }
+    let cardsCommand : Slack.SlackCommand = { name = "cards"
+                                              usage = "cards FILTER=VALUE"
+                                              handler = Slack.Commands.handleCards }
+    let normalCommands = 
+        let actualCommands = [
+            cardCommand
+            cardsCommand
+        ]
+
+        let makeHelpCommand (cmds : Slack.SlackCommand list) : Slack.SlackCommand =
+            let usage = "Usage:" :: (cmds |> List.map (fun c -> c.usage)) |> String.concat "\n"
+            { name = "help"
+              usage = usage
+              handler = fun _ -> async {return Slack.OutboundTypes.SlackResponse.ofAttachments [ Slack.OutboundTypes.Attachment.simple usage ] } }
+
+        actualCommands
+        |> List.fold (fun m c -> m |> Map.add c.name c) Map.empty
+        |> Map.add "help" (makeHelpCommand actualCommands)
 
     let app : WebPart = 
+        
         choose [
             GET >=> path "/" >=> OK "alive"
-            POST >=> path "/message" >=> request requestWebPart
+            POST >=> path "/message" >=> request (slackApp normalCommands)
         ]

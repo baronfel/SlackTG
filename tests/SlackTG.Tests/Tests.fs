@@ -36,7 +36,7 @@ let ``can respond to pretend slack payload``() =
         |> fun bs -> { Suave.Http.HttpRequest.empty with rawForm = bs }
 
     let response = 
-        Suave.handleMessage slackFormPost
+        SlackTG.Suave.cardsCommand.handler []
         |> Async.RunSynchronously
         |> string
     printf "%s" response

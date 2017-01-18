@@ -26,11 +26,11 @@ module Slack =
         type ResponseType = | InChannel | Ephemeral
         with override x.ToString () = match x with | InChannel -> "in_channel" | Ephemeral -> "ephemeral"
         type SlackResponse = {
-            Attachments : Attachment []
+            Attachments : Attachment list
             ResponseType : ResponseType
         }
         with static member ofAttachments a = {ResponseType = InChannel; Attachments = a }
-    
+
     module Commands =
         open OutboundTypes
         open Deckbrew
@@ -40,12 +40,34 @@ module Slack =
             | Cards of args : Map<string, string list> 
             | Card of name : string
             | Help
-        
+
+        let makeCardName (parts : string list) = parts |> String.concat " "
+
+        let parseCardsArgs (args : string list) =
+            args
+            |> List.map (String.split '=' >> fun l -> List.item 0 l,  List.item 1 l)
+            |> List.fold (fun m (k,v) ->
+                match m |> Map.tryFind k with
+                | None -> m |> Map.add k [v]
+                | Some vs -> m |> Map.add k (v :: vs)
+            ) Map.empty
+
+        let parseCommand commandName args = 
+            match commandName with
+            | "mtg" -> 
+                match args with
+                | "help"::_ -> Some Help
+                | "card"::nameparts -> Some <| Card (makeCardName nameparts)
+                | "cards"::cardArgs -> 
+                    let args' = parseCardsArgs cardArgs
+                    Some <| Cards args'
+                | _ -> None
+            | _ -> None
 
         let (|Text|_|) (s :string) v = 
             if s = v then Some Text 
             else None
-        let helpResponse = [| Attachment.simple "try /mtg card CARDNAME or /mtg cards type=creature. See https://deckbrew.com/api/ for full querying api" |] |> SlackResponse.ofAttachments
+        let helpResponse = [ Attachment.simple "try /mtg card CARDNAME or /mtg cards type=creature. See https://deckbrew.com/api/ for full querying api" ] |> SlackResponse.ofAttachments
             
         let cardsArgsToGetParams (args : Map<string, string list>) =
             let toCardArgsBasedOnKey (k : string) (vs : string list) =
@@ -68,39 +90,35 @@ module Slack =
             |> Map.fold (fun list k vs -> toCardArgsBasedOnKey k vs @ list) List.empty
 
         let makeErrorResponse (err : Deckbrew.Types.Error) : SlackResponse = 
-            [|  ["Error: "] @ err.Errors 
-                |> String.concat "\n"
-                |> Attachment.simple |] |> SlackResponse.ofAttachments
+            [ ["Error: "] @ err.Errors 
+              |> String.concat "\n"
+              |> Attachment.simple ] |> SlackResponse.ofAttachments
         
         let makeCardsResponse (cards : Types.CardModel.Card list) : SlackResponse = 
-            [| cards |> List.map (fun c -> c.Name) |> String.concat "\n" |> Attachment.simple  |] |> SlackResponse.ofAttachments
+            [ cards |> List.map (fun c -> c.Name) |> String.concat "\n" |> Attachment.simple ] |> SlackResponse.ofAttachments
         
         let makeCardResponse (card : Types.CardModel.Card) : SlackResponse =
             let firstEditionImage = card.Editions |> Array.tryLast |> Option.map (fun e -> e.ImageUrl |> System.Uri)
-            [| {Attachment.simple (card.Name)  with Image = firstEditionImage } |] |> SlackResponse.ofAttachments
+            [ {Attachment.simple (card.Name)  with Image = firstEditionImage } ] |> SlackResponse.ofAttachments
+        
+        let handleCard args : Async<SlackResponse> = 
+            async {
+                let! response = API.getCard (makeCardName args)
+                match response with
+                | Choice1Of2 card -> return makeCardResponse card
+                | Choice2Of2 err -> return makeErrorResponse err
+            }
+        
+        let handleCards args : Async<SlackResponse> = 
+            async {
+                let! response = args |> parseCardsArgs |> cardsArgsToGetParams |> API.getCards
+                match response with
+                | Choice2Of2 err -> return makeErrorResponse err 
+                | Choice1Of2 cards ->  return makeCardsResponse cards.Payload
+            }
 
-        let handleCommand : Command -> Async<SlackResponse> = 
-            fun c -> 
-                match c with
-                | Help -> async { return helpResponse }
-                | Cards args -> 
-                    async {
-                        let! response = args |> cardsArgsToGetParams |> API.getCards
-                        match response with
-                        | Choice2Of2 err -> return makeErrorResponse err 
-                        | Choice1Of2 cards ->  return makeCardsResponse cards.Payload
-                    }
-                | Card name -> 
-                    async {
-                        let! response = API.getCard name
-                        match response with
-                        | Choice2Of2 err -> return makeErrorResponse err
-                        | Choice1Of2 card -> return makeCardResponse card
-                    }
 
     module InboundTypes = 
-        open Commands 
-
         type TeamInfo = {
             id : string
             domain : string
@@ -120,21 +138,21 @@ module Slack =
             team : TeamInfo
             channel : ChannelInfo
             user : UserInfo
-            command : Command
+            command : string
+            args : string list
             response_url : System.Uri
         }
 
     open OutboundTypes
 
-    let confusedResponse : SlackResponse = 
+    type SlackCommand = {
+        name : string
+        usage : string
+        handler : string list -> Async<OutboundTypes.SlackResponse>
+    }
+
+    let confusedResponse = 
         let text = "Sorry, I didn't understand that request."
-
-        [|
-            {Attachment.simple text with 
+        { Attachment.simple text with 
                 Title = Some <| Plain "Unknown Command" }
-        |] |> SlackResponse.ofAttachments
-
-    let getCommand (args : InboundTypes.SlackArgs) = args.command
-
-    let handleSlackCommand = getCommand >> Commands.handleCommand
                 
