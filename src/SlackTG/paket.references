@@ -5,3 +5,4 @@ FParsec
 FSharpx.Extras
 Suave
 Http.fs
+Chiron

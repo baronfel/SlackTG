@@ -2,9 +2,18 @@
 
 module Slack =
     module OutboundTypes =
+        open Chiron
+        open Chiron.Operators
+
         type SlackText = | Plain of string | Markdown of string
         with member x.Text = match x with Plain s -> s | Markdown m -> m
-    
+             static member ToJson (s : SlackText) = 
+                match s with
+                | Plain s -> Json.Optic.set Json.String_ s
+                | Markdown s -> Json.Optic.set Json.String_ s
+             static member IsMarkdownString = function | Plain _ -> false | Markdown _ -> true
+        let uriToJson (u : System.Uri) = String (string u)
+
         type Attachment = {
             Title : SlackText option
             PreText : SlackText option
@@ -12,24 +21,38 @@ module Slack =
             Fallback : string
             Image : System.Uri option
         }
-        with 
+        with
+            static member ToJson (a : Attachment) = 
+                 let markdownFields = 
+                    seq { if defaultArg (Option.map SlackText.IsMarkdownString a.Title) false then yield "title"
+                          if defaultArg (Option.map SlackText.IsMarkdownString a.PreText) false then yield "pretext"
+                          if defaultArg (Option.map SlackText.IsMarkdownString a.Text) false then yield "text" } |> Seq.toArray
+                 Json.write "fallback" a.Fallback
+                 *> Json.writeUnlessDefault "title" None a.Title
+                 *> Json.writeUnlessDefault "pretext" None a.PreText
+                 *> Json.writeUnlessDefault "text" None a.Text
+                 *> json {
+                        match a.Image with
+                        | Some uri ->
+                            do! Json.write "image" (string uri) 
+                        | None -> ()
+                    }
+                 *> Json.writeUnlessDefault "mrkdwn_in" [||] markdownFields
             static member simple text = {Title = None; PreText = None; Text = Some <| Plain text; Fallback = text; Image = None} 
-            static member nameValue (a : Attachment) =
-                seq {
-                    match a.Title with | Some s -> yield "title", s | None -> ()
-                    match a.PreText with | Some s -> yield "pretext", s | None -> ()
-                    match a.Text with | Some s -> yield "text", s | None -> () 
-                    match a.Image with | Some i -> yield "image_url", (Plain (string i)) | None -> ()
-                    yield "fallback", a.Fallback |> Plain
-                }
             
         type ResponseType = | InChannel | Ephemeral
-        with override x.ToString () = match x with | InChannel -> "in_channel" | Ephemeral -> "ephemeral"
+        with static member ToJson r = 
+                match r with 
+                | InChannel -> Json.Optic.set Json.String_ "in_channel"
+                | Ephemeral -> Json.Optic.set Json.String_ "ephemeral"
         type SlackResponse = {
             Attachments : Attachment list
             ResponseType : ResponseType
         }
         with static member ofAttachments a = {ResponseType = InChannel; Attachments = a }
+             static member ToJson (r : SlackResponse) = 
+                Json.write "response_type" r.ResponseType 
+                *> Json.write "attachments" r.Attachments
 
     module Commands =
         open OutboundTypes
@@ -116,8 +139,7 @@ module Slack =
                 | Choice2Of2 err -> return makeErrorResponse err 
                 | Choice1Of2 cards ->  return makeCardsResponse cards.Payload
             }
-
-
+        
     module InboundTypes = 
         type TeamInfo = {
             id : string
@@ -155,4 +177,26 @@ module Slack =
         let text = "Sorry, I didn't understand that request."
         { Attachment.simple text with 
                 Title = Some <| Plain "Unknown Command" }
+    let cardCommand : SlackCommand = { name = "card" 
+                                       usage = "card CARDNAME" 
+                                       handler = Commands.handleCard }
+    let cardsCommand : SlackCommand = { name = "cards"
+                                        usage = "cards FILTER=VALUE"
+                                        handler = Commands.handleCards }
+    let normalCommandSet = 
+        let actualCommands = [
+            cardCommand
+            cardsCommand
+        ]
+
+        let makeHelpCommand (cmds : SlackCommand list) : SlackCommand =
+            let usage = "Usage:" :: (cmds |> List.map (fun c -> c.usage)) |> String.concat "\n"
+            { name = "help"
+              usage = usage
+              handler = fun _ -> async {return SlackResponse.ofAttachments [ Attachment.simple usage ] } }
+
+        actualCommands
+        |> List.fold (fun m c -> m |> Map.add c.name c) Map.empty
+        |> Map.add "help" (makeHelpCommand actualCommands)
+
                 

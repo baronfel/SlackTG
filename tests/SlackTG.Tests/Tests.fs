@@ -3,6 +3,7 @@
 open SlackTG
 open NUnit.Framework
 open Deckbrew
+open Chiron
 
 [<Test>]
 let ``can do simple query``() =
@@ -36,8 +37,17 @@ let ``can respond to pretend slack payload``() =
         |> fun bs -> { Suave.Http.HttpRequest.empty with rawForm = bs }
 
     let response = 
-        SlackTG.Suave.cardsCommand.handler []
+        Slack.cardsCommand.handler []
         |> Async.RunSynchronously
-        |> string
-    printf "%s" response
-    Assert.That(not <| response.Contains("Error:"))
+    printfn "%A" response
+
+[<Test>]
+let ``can write a response``() = 
+    let response = Slack.OutboundTypes.SlackResponse.ofAttachments [ Slack.OutboundTypes.Attachment.simple "yeah man" ]
+    let json = Chiron.Mapping.Json.serialize response |> Chiron.Formatting.Json.format
+    printfn "%s" json 
+    let parsed = Chiron.Parsing.Json.parse json
+    match parsed with
+    | Object keys -> 
+        printfn "has title? %b" (keys |> Map.containsKey "title")
+    | _ -> failwith "boom"

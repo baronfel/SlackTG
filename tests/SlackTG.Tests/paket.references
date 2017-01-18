@@ -1,8 +1,9 @@
-FSharp.Data
 FSharp.Text.RegexProvider
 FSharp.Core
 Suave
-
+Chiron
+FSharp.Data
+Hopac
 group Test
 NUnit
 NUnit.Runners
