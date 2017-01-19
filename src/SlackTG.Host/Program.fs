@@ -8,6 +8,7 @@ open System
 open System.Threading
 open Logary
 open Suave.Logging
+open Logary.Message
 open Logary.Configuration.Config
 open Logary.Targets
 open Logary.Adapters.Facade
@@ -34,8 +35,9 @@ let main argv =
 
     LogaryFacadeAdapter.initialise<Suave.Logging.Logger> logary
 
-    startWebServer config SlackTG.Suave.app
+    let started, listening = startWebServerAsync config SlackTG.Suave.app
+    Async.Start(listening, cts.Token)
     Console.ReadLine() |> ignore
     cts.Cancel()
-    printfn "exiting server..." 
+    (logary.getLogger (PointName [|"root"|])).info (eventX "shutting down")
     exit 0

@@ -19,7 +19,6 @@ let tests =
         testCase "can do simple query" <| fun () ->             
             let response = MTG.handleCards ["name=Avacyn"; "cmc=gt3"; "color=white"; "color=red"] |> Async.RunSynchronously
             Expect.equal response.ResponseType Slack.OutboundTypes.InChannel "should be in-channel response"
-            printfn "%A" response.Attachments
 
         testCase "can respond to pretend payload" <| fun () -> 
             let slackFormPost = [
@@ -70,6 +69,11 @@ let tests =
                 let responseType : Slack.OutboundTypes.ResponseType = keys |> Map.find "response_type" |> Json.deserialize
                 Expect.equal Slack.OutboundTypes.ResponseType.InChannel responseType "should be an in-channel message"
             | _ -> failwith "boom"
+        ftestCase "can parse card args" <| fun () ->
+            let args = ["color=blue"; "color=black"; "cmc=lt2"]
+            let parsed = parseCardsArgs args
+            let expected = Map.empty |> Map.add "color" ["black"; "blue";] |> Map.add "cmc" ["lt2"]
+            Expect.equal parsed expected "should be able to parse sorta-complex args"
     ]
 
 [<EntryPoint>]

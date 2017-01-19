@@ -53,12 +53,18 @@ module mtgio =
     type Card = {
         Name : string
         ImageUrl : Uri
+        Set : string
+        GathererUrl : Uri
+        MultiverseId : int
     } with
       static member BackupImageUri = Uri "https://hydra-media.cursecdn.com/mtgsalvation.gamepedia.com/f/f8/Magic_card_back.jpg"
+      static member GathererUri (mid : int) = Uri (sprintf "http://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=%d" mid)
       static member FromJson (_ : Card) = 
-        fun name img -> {Name = name; ImageUrl = img}
+        fun name img setId mid -> {Name = name; ImageUrl = img; Set = setId; GathererUrl = Card.GathererUri mid; MultiverseId = mid}
         <!> Json.read "name"
         <*> Json.readWithOrDefault uriFromJson "imageUrl" Card.BackupImageUri
+        <*> Json.read "set"
+        <*> Json.readOrDefault "multiverseid" 0
     
     type CardResponse = {
         Cards : Card list
@@ -98,7 +104,8 @@ module mtgio =
     let queryCards queries : ApiCall<Card list> = 
         let r = Request.create Get (combineUri rooturl "/v1/cards")
         let queryAdded = queries |> Seq.map queryToQS |> Seq.fold (fun r (k,v) -> Request.queryStringItem k v r) r
-        handle queryAdded |> Async.map (Choice.bind (fun cards -> Choice1Of2 cards.Cards))
+        let ordered = queryAdded |> Request.queryStringItem "orderBy" "name"
+        ordered |> handle |> Async.map (Choice.bind (fun cards -> Choice1Of2 cards.Cards))
             
 
 module MTG =   
@@ -122,11 +129,17 @@ module MTG =
     let makeErrorResponse (err : Error) : SlackResponse = 
         [ Attachment.simple (sprintf "Error: %s" err.error) ] |> SlackResponse.ofAttachments
     
-    let makeCardsResponse (cards : Card list) : SlackResponse = 
-        [ cards |> List.map (fun c -> c.Name) |> String.concat "\n" |> Attachment.simple ] |> SlackResponse.ofAttachments
     
+    let formattedUrl (uri : Uri) (label : string) = sprintf "<%s|%s>" (string uri) label
+
+    let fancyName (c : Card) = sprintf "%s (%s)" c.Name c.Set
+
+    let makeCardsResponse (cards : Card list) : SlackResponse = 
+        [ cards |> List.map (fun c -> formattedUrl c.GathererUrl (fancyName c)) |> String.concat "\n" |> Attachment.simple ] |> SlackResponse.ofAttachments
+    
+
     let makeCardResponse (card : Card) : SlackResponse =
-        [ { Attachment.simple (card.Name) with Image = Some card.ImageUrl } ] |> SlackResponse.ofAttachments
+        [ { Attachment.simple (formattedUrl card.GathererUrl (fancyName card)) with Image = Some card.ImageUrl } ] |> SlackResponse.ofAttachments
     
     let tryParseInt (s : string) = 
         match Int32.TryParse s with
@@ -154,7 +167,7 @@ module MTG =
                 | xs -> 
                     let finalExpr = xs |> List.map Value |> OR
                     Colors finalExpr :: l
-
+            | _ -> l
 
         p |> Map.fold matcher []
 
