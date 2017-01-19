@@ -34,7 +34,7 @@ module Suave =
             let! channel_name = findInForm "channel_name" id
             let! user_id = findInForm "user_id" id
             let! user_name = findInForm "user_name" id
-            let! command = findInForm "command" (fun c -> c.TrimStart('/').ToLowerInvariant())
+            let! _ = findInForm "command" (fun c -> c.TrimStart('/').ToLowerInvariant())
             let! args = findInForm "text" (fun argString -> argString.Split([|' '|], System.StringSplitOptions.RemoveEmptyEntries) |> List.ofArray)
             let! response_url = findInForm "response_url" tryParseUri |> Option.bind id
             
@@ -46,7 +46,6 @@ module Suave =
                 | [] -> None
                 | [cmd] -> Some (cmd, [])
                 | cmd::args -> Some (cmd, args)
-            //let! command = parseCommand command args
             return {token = token; team = team; channel = channel; user = user; command = command; args = args; response_url = response_url}
         }
 
@@ -58,7 +57,7 @@ module Suave =
     let slackApp (commands : Map<string, Slack.SlackCommand>) (request : HttpRequest) : WebPart = 
         let helpResponse command = 
             let usage = commands |> Map.find "help" |> fun c -> c.usage |> Slack.OutboundTypes.Attachment.simple
-            { Slack.OutboundTypes.SlackResponse.ofAttachments [Slack.confusedResponse command; usage] with ResponseType = Slack.OutboundTypes.Ephemeral }
+            { Slack.OutboundTypes.SlackResponse.ofAttachments [MTG.confusedResponse command; usage] with ResponseType = Slack.OutboundTypes.Ephemeral }
         let slackRequest = extractFormFields request
         let slackResponse =
             match slackRequest with
@@ -75,5 +74,5 @@ module Suave =
         
         choose [
             GET >=> path "/" >=> OK "alive"
-            POST >=> path "/message" >=> request (slackApp Slack.normalCommandSet)
+            POST >=> path "/message" >=> request (slackApp MTG.normalCommandSet)
         ]

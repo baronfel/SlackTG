@@ -1,7 +1,7 @@
 ﻿module SlackTG.Tests
 
 open SlackTG
-open Deckbrew
+open MTG
 open Chiron
 open Expecto
 open HttpFs
@@ -9,23 +9,22 @@ open HttpFs.Client
 open Chiron.Mapping
 open Chiron.Formatting
 open Hopac
-let cardIsColor color (card : Deckbrew.Types.CardModel.Card) = card.Colors |> Array.exists ((=) color)
+open mtgio
+
+//let cardIsColor color (card : Card) = card.Colors |> Array.exists ((=) color)
 
 [<Tests>]
 let tests = 
     testList "API" [
         testCase "can do simple query" <| fun () -> 
             let query = [
-                API.Color Types.Green
-                API.Format Types.Commander
+               //"color", ["green"]
+               "name", ["Avacyn"]
             ]
             
-            let response = API.getCards query |> Async.RunSynchronously
-            
-            match response with
-            | Choice2Of2 errs -> failwithf "%s" (errs.Errors |> String.concat ";")
-            | Choice1Of2 cards -> 
-                Expect.isTrue (cards.Payload |> List.forall (fun card -> cardIsColor "green" card && card.Formats.Commander.IsSome && card.Formats.Commander.Value = "legal")) "all cards should be green commands cards"
+            let response = MTG.handleCards ["name=Avacyn"] |> Async.RunSynchronously
+            Expect.equal response.ResponseType Slack.OutboundTypes.InChannel "should be in-channel response"
+            printfn "%A" response.Attachments
 
         testCase "can respond to pretend payload" <| fun () -> 
             let slackFormPost = [
@@ -56,20 +55,18 @@ let tests =
                 |> getResponse |> Job.toAsync
                 |> Async.bind (Response.readBodyAsString >> Job.toAsync)
                 |> Async.RunSynchronously
-            printfn "%s" response
                 
             let response : Slack.OutboundTypes.SlackResponse = response |> (Json.parse >> Json.deserialize)
             
             Expect.equal response.ResponseType SlackTG.Slack.OutboundTypes.ResponseType.InChannel "should be in-channel because not broken"
             let attachment = response.Attachments.[0]
             let (Slack.OutboundTypes.SlackText.Plain(text)) = attachment.Text.Value;
-            Expect.stringStarts (text |> String.split '\n' |> List.head) "_____" "should start with _____ card. yes, I know"
+            Expect.stringStarts (text |> String.split '\n' |> List.head) "Air Elemental" "should start with Air Elemental card."
             cancellationToken.Cancel()
             
         testCase "can write response" <| fun () -> 
             let response = Slack.OutboundTypes.SlackResponse.ofAttachments [ Slack.OutboundTypes.Attachment.simple "yeah man" ]
             let json = Json.serialize response |> Json.format
-            printfn "%s" json 
             let parsed = Json.parse json
             match parsed with
             | Object keys -> 

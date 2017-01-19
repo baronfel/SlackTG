@@ -1,7 +1,35 @@
 ﻿namespace SlackTG
 
+module Serialization = 
+    open System
+    open Chiron
+
+    let uriToJson (u : Uri) = String (string u)
+        
+    let (|ValidUri|InvalidUri|) s = 
+        try 
+            let u = System.Uri(s, System.UriKind.Absolute)
+            ValidUri u
+        with
+        | _ -> InvalidUri
+        
+    let uriFromJsonOpt = function
+        | String (ValidUri uri) -> Value (Some uri)
+        | json -> 
+            Json.formatWith JsonFormattingOptions.SingleLine json
+            |> sprintf "Expected a string containing an absolute URI: %s"
+            |> Error
+    
+    let uriFromJson = function
+        | String (ValidUri uri) -> Value uri
+        | json -> 
+            Json.formatWith JsonFormattingOptions.SingleLine json
+            |> sprintf "Expected a string containing an absolute URI: %s"
+            |> Error
+
 module Slack =
     module OutboundTypes =
+        open Serialization
         open Chiron
         open Chiron.Operators
 
@@ -15,21 +43,7 @@ module Slack =
                 Plain <!> Json.Optic.get Json.String_
                 
              static member IsMarkdownString = function | Plain _ -> false | Markdown _ -> true
-        let uriToJson (u : System.Uri) = String (string u)
-        
-        let (|ValidUri|InvalidUri|) s = 
-            try 
-                let u = System.Uri(s, System.UriKind.Absolute)
-                ValidUri u
-            with
-            | _ -> InvalidUri
-            
-        let uriFromJson = function
-            | String (ValidUri uri) -> Value (Some uri)
-            | json -> 
-                Json.formatWith JsonFormattingOptions.SingleLine json
-                |> sprintf "Expected a string containing an absolute URI: %s"
-                |> Error
+
 
         type Attachment = {
             Title : SlackText option
@@ -61,7 +75,7 @@ module Slack =
                 <*> Json.tryRead "pretext"
                 <*> Json.tryRead "text"
                 <*> Json.read "fallback"
-                <*> Json.tryReadWith uriFromJson "image_url"
+                <*> Json.tryReadWith uriFromJsonOpt "image_url"
             static member simple text = {Title = None; PreText = None; Text = Some <| Plain text; Fallback = text; Image = None} 
             
         type ResponseType = | InChannel | Ephemeral
@@ -72,7 +86,6 @@ module Slack =
              static member FromJson (_ : ResponseType) =
                 json {
                     let! s = Json.Optic.get Json.String_
-                    printfn "got %s" s
                     if s = "in_channel" then return InChannel
                     else if s = "ephemeral" then return Ephemeral
                     else return failwith "unknown response type"
@@ -90,92 +103,6 @@ module Slack =
                 fun responseT attachs -> {Attachments = attachs; ResponseType = responseT }
                 <!> Json.read "response_type"
                 <*> Json.read "attachments"
-
-    module Commands =
-        open OutboundTypes
-        open Deckbrew
-
-        type Command = 
-            // /mtg cards color=green,blue set=SOI
-            | Cards of args : Map<string, string list> 
-            | Card of name : string
-            | Help
-
-        let makeCardName (parts : string list) = parts |> String.concat " "
-
-        let parseCardsArgs (args : string list) =
-            args
-            |> List.map (String.split '=' >> fun l -> List.item 0 l,  List.item 1 l)
-            |> List.fold (fun m (k,v) ->
-                match m |> Map.tryFind k with
-                | None -> m |> Map.add k [v]
-                | Some vs -> m |> Map.add k (v :: vs)
-            ) Map.empty
-
-        let parseCommand commandName args = 
-            match commandName with
-            | "mtg" -> 
-                match args with
-                | "help"::_ -> Some Help
-                | "card"::nameparts -> Some <| Card (makeCardName nameparts)
-                | "cards"::cardArgs -> 
-                    let args' = parseCardsArgs cardArgs
-                    Some <| Cards args'
-                | _ -> None
-            | _ -> None
-
-        let (|Text|_|) (s :string) v = 
-            if s = v then Some Text 
-            else None
-        let helpResponse = [ Attachment.simple "try /mtg card CARDNAME or /mtg cards type=creature. See https://deckbrew.com/api/ for full querying api" ] |> SlackResponse.ofAttachments
-            
-        let cardsArgsToGetParams (args : Map<string, string list>) =
-            let toCardArgsBasedOnKey (k : string) (vs : string list) =
-                match k with
-                | Text "type" -> List.map (Types.CT >> API.Type) vs 
-                | Text "subtype" -> vs |> List.choose Types.SubType.TryParse |> List.map API.SubType
-                | Text "supertype" -> vs |> List.choose Types.SuperType.TryParse |> List.map API.SuperType
-                | Text "name" -> vs |> List.map API.Name
-                | Text "oracle" -> vs |> List.map API.Oracle
-                | Text "set" -> vs |> List.map API.Set
-                | Text "rarity" -> vs |> List.choose Types.Rarity.TryParse |> List.map API.Rarity
-                | Text "color" -> vs |> List.choose Types.Color.TryParse |> List.map API.Color
-                | Text "multicolor" -> vs |> List.choose (bool.TryParse >> function | true,v -> Some v | _ -> None) |> List.fold (&&) true |> API.Multicolor |> List.singleton
-                | Text "multiverseid" | Text "m" -> vs |> List.map API.MultiverseId
-                | Text "format" -> vs |> List.choose Types.Format.TryParse |> List.map API.Format
-                | Text "status" -> vs |> List.choose Types.Status.TryParse |> List.map API.Status
-                | _ -> []
-
-            args
-            |> Map.fold (fun list k vs -> toCardArgsBasedOnKey k vs @ list) List.empty
-
-        let makeErrorResponse (err : Deckbrew.Types.Error) : SlackResponse = 
-            [ ["Error: "] @ err.Errors 
-              |> String.concat "\n"
-              |> Attachment.simple ] |> SlackResponse.ofAttachments
-        
-        let makeCardsResponse (cards : Types.CardModel.Card list) : SlackResponse = 
-            [ cards |> List.map (fun c -> c.Name) |> String.concat "\n" |> Attachment.simple ] |> SlackResponse.ofAttachments
-        
-        let makeCardResponse (card : Types.CardModel.Card) : SlackResponse =
-            let firstEditionImage = card.Editions |> Array.tryLast |> Option.map (fun e -> e.ImageUrl |> System.Uri)
-            [ {Attachment.simple (card.Name)  with Image = firstEditionImage } ] |> SlackResponse.ofAttachments
-        
-        let handleCard args : Async<SlackResponse> = 
-            async {
-                let! response = API.getCard (makeCardName args)
-                match response with
-                | Choice1Of2 card -> return makeCardResponse card
-                | Choice2Of2 err -> return makeErrorResponse err
-            }
-        
-        let handleCards args : Async<SlackResponse> = 
-            async {
-                let! response = args |> parseCardsArgs |> cardsArgsToGetParams |> API.getCards
-                match response with
-                | Choice2Of2 err -> return makeErrorResponse err 
-                | Choice1Of2 cards ->  return makeCardsResponse cards.Payload
-            }
         
     module InboundTypes = 
         type TeamInfo = {
@@ -202,38 +129,9 @@ module Slack =
             response_url : System.Uri
         }
 
-    open OutboundTypes
-
     type SlackCommand = {
         name : string
         usage : string
         handler : string list -> Async<OutboundTypes.SlackResponse>
     }
-
-    let confusedResponse command = 
-        let text = sprintf "Sorry, I didn't understand the command '%s'." command
-        { Attachment.simple text with 
-                Title = Some <| Plain "Unknown Command" }
-    let cardCommand : SlackCommand = { name = "card" 
-                                       usage = "card CARDNAME" 
-                                       handler = Commands.handleCard }
-    let cardsCommand : SlackCommand = { name = "cards"
-                                        usage = "cards FILTER=VALUE"
-                                        handler = Commands.handleCards }
-    let normalCommandSet = 
-        let actualCommands = [
-            cardCommand
-            cardsCommand
-        ]
-
-        let makeHelpCommand (cmds : SlackCommand list) : SlackCommand =
-            let usage = "Usage:" :: (cmds |> List.map (fun c -> c.usage)) |> String.concat "\n"
-            { name = "help"
-              usage = usage
-              handler = fun _ -> async {return SlackResponse.ofAttachments [ Attachment.simple usage ] } }
-
-        actualCommands
-        |> List.fold (fun m c -> m |> Map.add c.name c) Map.empty
-        |> Map.add "help" (makeHelpCommand actualCommands)
-
                 

@@ -12,7 +12,6 @@ nuget Http.fs
 nuget Logary.Adapters.Facade
 nuget Logary.Adapters.Suave
 nuget Suave
-nuget Microsoft.AspNet.WebApi.Client
 
 group Build
   source https://nuget.org/api/v2

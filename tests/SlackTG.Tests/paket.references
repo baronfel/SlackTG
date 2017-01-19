@@ -5,6 +5,6 @@ Chiron
 FSharp.Data
 Hopac
 Http.fs
-
+MtgApiManager.Lib
 group Test
 Expecto
