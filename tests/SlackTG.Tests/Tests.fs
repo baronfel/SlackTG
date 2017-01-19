@@ -55,7 +55,7 @@ let tests =
             Expect.equal response.ResponseType SlackTG.Slack.OutboundTypes.ResponseType.InChannel "should be in-channel because not broken"
             let attachment = response.Attachments.[0]
             let (Slack.OutboundTypes.SlackText.Plain(text)) = attachment.Text.Value;
-            Expect.stringStarts (text |> String.split '\n' |> List.head) "Air Elemental" "should start with Air Elemental card."
+            Expect.stringStarts (text |> String.split '\n' |> List.head) "<http://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=74252|_____ (UNH)>" "should start with formatted guy card."
             cancellationToken.Cancel()
             
         testCase "can write response" <| fun () -> 
@@ -69,11 +69,21 @@ let tests =
                 let responseType : Slack.OutboundTypes.ResponseType = keys |> Map.find "response_type" |> Json.deserialize
                 Expect.equal Slack.OutboundTypes.ResponseType.InChannel responseType "should be an in-channel message"
             | _ -> failwith "boom"
-        ftestCase "can parse card args" <| fun () ->
+        testCase "can parse card args" <| fun () ->
             let args = ["color=blue"; "color=black"; "cmc=lt2"]
             let parsed = parseCardsArgs args
             let expected = Map.empty |> Map.add "color" ["black"; "blue";] |> Map.add "cmc" ["lt2"]
             Expect.equal parsed expected "should be able to parse sorta-complex args"
+        testCase "rarities sort correctly" <| fun () -> 
+            let mythic : Rarity = String "Mythic Rare" |> Json.deserialize
+            let uncommon : Rarity = String "Uncommon" |> Json.deserialize 
+            let rare : Rarity = String "Rare" |> Json.deserialize
+            Expect.isGreaterThan Rarity.Mythic Rarity.Uncommon "mythic should be higher"
+            Expect.isGreaterThan mythic uncommon "parsed rarities are ok"
+            Expect.isGreaterThan rare uncommon "rare is higher"
+            Expect.equal Rarity.Mythic mythic "mythic is the same"
+            Expect.equal Rarity.Uncommon uncommon "uncommon is the same"
+            Expect.equal Rarity.Rare rare "rare is the same"
     ]
 
 [<EntryPoint>]

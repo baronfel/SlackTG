@@ -49,6 +49,29 @@ module mtgio =
     | Name of string list
     | CMC of int * NumericComparison
     | Colors of BooleanExpression
+    | Text of BooleanExpression
+
+    type Rarity =
+    | BasicLand
+    | Common
+    | Uncommon
+    | Rare
+    | Mythic
+    | Special
+    with 
+      static member FromJson (_ : Rarity) = 
+        json {
+            let! s = Json.Optic.get Json.String_
+            match s with
+            | Text.Text "basic land" -> return BasicLand
+            | Text.Text "common" -> return Common
+            | Text.Text "uncommon" -> return Uncommon
+            | Text.Text "rare" -> return Rare
+            | Text.Text "mythic rare" -> return Mythic
+            | Text.Text "special" -> return Special
+            | s ->
+                return! Json.error (sprintf "expected one of: basic land, common, uncommon, rare, mythinc rare, or special. got %s" s)
+        }
 
     type Card = {
         Name : string
@@ -56,15 +79,17 @@ module mtgio =
         Set : string
         GathererUrl : Uri
         MultiverseId : int
+        Rarity : Rarity
     } with
       static member BackupImageUri = Uri "https://hydra-media.cursecdn.com/mtgsalvation.gamepedia.com/f/f8/Magic_card_back.jpg"
       static member GathererUri (mid : int) = Uri (sprintf "http://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=%d" mid)
       static member FromJson (_ : Card) = 
-        fun name img setId mid -> {Name = name; ImageUrl = img; Set = setId; GathererUrl = Card.GathererUri mid; MultiverseId = mid}
+        fun name img setId mid rarity -> {Name = name; ImageUrl = img; Set = setId; GathererUrl = Card.GathererUri mid; MultiverseId = mid; Rarity = rarity}
         <!> Json.read "name"
         <*> Json.readWithOrDefault uriFromJson "imageUrl" Card.BackupImageUri
         <*> Json.read "set"
         <*> Json.readOrDefault "multiverseid" 0
+        <*> Json.read "rarity"
     
     type CardResponse = {
         Cards : Card list
@@ -86,6 +111,7 @@ module mtgio =
     | Name names -> "name", joinOR names
     | CMC (value, cmp) -> "cmc", sprintf "%s%d" (NumericComparison.ToQS cmp) value
     | Colors expr -> "colors", evalExpr expr
+    | Text expr -> "text", evalExpr expr
 
     let combineUri (source : Uri) (path : string) = 
         let b = UriBuilder(source)
@@ -106,7 +132,10 @@ module mtgio =
         let queryAdded = queries |> Seq.map queryToQS |> Seq.fold (fun r (k,v) -> Request.queryStringItem k v r) r
         let ordered = queryAdded |> Request.queryStringItem "orderBy" "name"
         ordered |> handle |> Async.map (Choice.bind (fun cards -> Choice1Of2 cards.Cards))
-            
+    
+    let makeBooster setname : ApiCall<Card list> = 
+        let r = Request.create Get (combineUri rooturl (sprintf "/v1/sets/%s/booster" setname))
+        r |> handle |> Async.map (Choice.bind (fun cards -> Choice1Of2 cards.Cards))
 
 module MTG =   
     open System
@@ -135,11 +164,19 @@ module MTG =
     let fancyName (c : Card) = sprintf "%s (%s)" c.Name c.Set
 
     let makeCardsResponse (cards : Card list) : SlackResponse = 
-        [ cards |> List.map (fun c -> formattedUrl c.GathererUrl (fancyName c)) |> String.concat "\n" |> Attachment.simple ] |> SlackResponse.ofAttachments
+        cards
+        |> List.map (fun c -> formattedUrl c.GathererUrl (fancyName c)) 
+        |> String.concat "\n" 
+        |> Attachment.simple
+        |> List.singleton 
+        |> SlackResponse.ofAttachments
     
 
     let makeCardResponse (card : Card) : SlackResponse =
-        [ { Attachment.simple (formattedUrl card.GathererUrl (fancyName card)) with Image = Some card.ImageUrl } ] |> SlackResponse.ofAttachments
+        { Attachment.simple (formattedUrl card.GathererUrl (fancyName card)) 
+            with Image = Some card.ImageUrl }
+        |> List.singleton
+        |> SlackResponse.ofAttachments
     
     let tryParseInt (s : string) = 
         match Int32.TryParse s with
@@ -147,6 +184,13 @@ module MTG =
         | _ -> None
     
     let cardArgsToGetParams (p : Map<string, string list>) : CardQueryFields list =
+        let unwrapCollection (vs : string list) : BooleanExpression option = 
+            let colors = vs |> List.collect (String.split ',') |> List.collect (String.split '|')
+            match colors with
+            | [] -> None 
+            | [x] -> Some (Value x)
+            | xs -> xs |> List.map Value |> OR |> Some
+
         let matcher l k vs = 
             match k with
             | Text "name" -> Name vs :: l
@@ -160,13 +204,13 @@ module MTG =
                     | Some n -> CMC(n, cmp) :: l
                     | None -> l
             | Text "color" -> 
-                let colors = vs |> List.collect (String.split ',') |> List.collect (String.split '|')
-                match colors with
-                | [] -> l
-                | [x] -> (Colors (Value x)) :: l
-                | xs -> 
-                    let finalExpr = xs |> List.map Value |> OR
-                    Colors finalExpr :: l
+                match unwrapCollection vs with
+                | None -> l
+                | Some expr -> Colors expr :: l
+            | Text "text" -> 
+                match unwrapCollection vs with
+                | None -> l
+                | Some expr -> Text expr :: l
             | _ -> l
 
         p |> Map.fold matcher []
@@ -187,7 +231,16 @@ module MTG =
             | Choice2Of2 err -> return makeErrorResponse err 
             | Choice1Of2 cards ->  return makeCardsResponse cards
         }
-
+    let makeBooster args : Async<SlackResponse> = 
+        async {
+            match args with
+            | [] -> return makeErrorResponse { error = "gotta specify a set, dude" }
+            | setname::_ -> 
+                let! cards = mtgio.makeBooster setname
+                match cards with
+                | Choice2Of2 err -> return makeErrorResponse err
+                | Choice1Of2 cards -> return makeCardsResponse (cards |> List.sortByDescending (fun c -> c.Rarity))
+        }
     let confusedResponse command = 
         let text = sprintf "Sorry, I didn't understand the command '%s'." command
         { Attachment.simple text with 
@@ -198,10 +251,14 @@ module MTG =
     let cardsCommand : SlackCommand = { name = "cards"
                                         usage = "cards FILTER=VALUE"
                                         handler = handleCards }
+    let boosterCommand : SlackCommand = { name = "booster"
+                                          usage = "booster SETNAME" 
+                                          handler = makeBooster }
     let normalCommandSet = 
         let actualCommands = [
             cardCommand
             cardsCommand
+            boosterCommand
         ]
 
         let makeHelpCommand (cmds : SlackCommand list) : SlackCommand =
