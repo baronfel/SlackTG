@@ -11,8 +11,25 @@ module Slack =
                 match s with
                 | Plain s -> Json.Optic.set Json.String_ s
                 | Markdown s -> Json.Optic.set Json.String_ s
+             static member FromJson (_ : SlackText) = 
+                Plain <!> Json.Optic.get Json.String_
+                
              static member IsMarkdownString = function | Plain _ -> false | Markdown _ -> true
         let uriToJson (u : System.Uri) = String (string u)
+        
+        let (|ValidUri|InvalidUri|) s = 
+            try 
+                let u = System.Uri(s, System.UriKind.Absolute)
+                ValidUri u
+            with
+            | _ -> InvalidUri
+            
+        let uriFromJson = function
+            | String (ValidUri uri) -> Value (Some uri)
+            | json -> 
+                Json.formatWith JsonFormattingOptions.SingleLine json
+                |> sprintf "Expected a string containing an absolute URI: %s"
+                |> Error
 
         type Attachment = {
             Title : SlackText option
@@ -34,10 +51,17 @@ module Slack =
                  *> json {
                         match a.Image with
                         | Some uri ->
-                            do! Json.write "image" (string uri) 
+                            do! Json.write "image_url" (string uri) 
                         | None -> ()
                     }
                  *> Json.writeUnlessDefault "mrkdwn_in" [||] markdownFields
+            static member FromJson (_ : Attachment) = 
+                fun title pre text fallback image -> {Title = title; PreText = pre; Text = text; Fallback = fallback; Image = image;}
+                <!> Json.tryRead "title"
+                <*> Json.tryRead "pretext"
+                <*> Json.tryRead "text"
+                <*> Json.read "fallback"
+                <*> Json.tryReadWith uriFromJson "image_url"
             static member simple text = {Title = None; PreText = None; Text = Some <| Plain text; Fallback = text; Image = None} 
             
         type ResponseType = | InChannel | Ephemeral
@@ -45,6 +69,15 @@ module Slack =
                 match r with 
                 | InChannel -> Json.Optic.set Json.String_ "in_channel"
                 | Ephemeral -> Json.Optic.set Json.String_ "ephemeral"
+             static member FromJson (_ : ResponseType) =
+                json {
+                    let! s = Json.Optic.get Json.String_
+                    printfn "got %s" s
+                    if s = "in_channel" then return InChannel
+                    else if s = "ephemeral" then return Ephemeral
+                    else return failwith "unknown response type"
+                } 
+
         type SlackResponse = {
             Attachments : Attachment list
             ResponseType : ResponseType
@@ -53,6 +86,10 @@ module Slack =
              static member ToJson (r : SlackResponse) = 
                 Json.write "response_type" r.ResponseType 
                 *> Json.write "attachments" r.Attachments
+             static member FromJson (_ : SlackResponse) = 
+                fun responseT attachs -> {Attachments = attachs; ResponseType = responseT }
+                <!> Json.read "response_type"
+                <*> Json.read "attachments"
 
     module Commands =
         open OutboundTypes
@@ -173,8 +210,8 @@ module Slack =
         handler : string list -> Async<OutboundTypes.SlackResponse>
     }
 
-    let confusedResponse = 
-        let text = "Sorry, I didn't understand that request."
+    let confusedResponse command = 
+        let text = sprintf "Sorry, I didn't understand the command '%s'." command
         { Attachment.simple text with 
                 Title = Some <| Plain "Unknown Command" }
     let cardCommand : SlackCommand = { name = "card" 

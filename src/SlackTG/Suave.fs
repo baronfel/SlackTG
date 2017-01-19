@@ -41,6 +41,11 @@ module Suave =
             let team = { id = team_id; domain = team_domain }
             let channel = { ChannelInfo.id = channel_id; name = channel_name }
             let user = { UserInfo.id = user_id; name = user_name }
+            let! (command, args) = 
+                match args with
+                | [] -> None
+                | [cmd] -> Some (cmd, [])
+                | cmd::args -> Some (cmd, args)
             //let! command = parseCommand command args
             return {token = token; team = team; channel = channel; user = user; command = command; args = args; response_url = response_url}
         }
@@ -51,9 +56,9 @@ module Suave =
         >=> setMimeType "application/json;charset=utf-8" 
 
     let slackApp (commands : Map<string, Slack.SlackCommand>) (request : HttpRequest) : WebPart = 
-        let helpResponse = 
-            let usages = commands |> Map.toSeq |> Seq.map (snd >> fun c -> c.usage |> Slack.OutboundTypes.Attachment.simple) |> Seq.toList
-            { Slack.OutboundTypes.SlackResponse.ofAttachments (Slack.confusedResponse :: usages) with ResponseType = Slack.OutboundTypes.Ephemeral }
+        let helpResponse command = 
+            let usage = commands |> Map.find "help" |> fun c -> c.usage |> Slack.OutboundTypes.Attachment.simple
+            { Slack.OutboundTypes.SlackResponse.ofAttachments [Slack.confusedResponse command; usage] with ResponseType = Slack.OutboundTypes.Ephemeral }
         let slackRequest = extractFormFields request
         let slackResponse =
             match slackRequest with
@@ -61,8 +66,8 @@ module Suave =
                 match commands |> Map.tryFind slackMessage.command with
                 | Some command -> 
                     command.handler slackMessage.args |> Async.RunSynchronously
-                | None -> helpResponse
-            | None -> helpResponse
+                | None -> helpResponse slackMessage.command
+            | None -> { Slack.OutboundTypes.SlackResponse.ofAttachments [Slack.OutboundTypes.Attachment.simple "sorry, your message was malformed"] with ResponseType = Slack.OutboundTypes.Ephemeral} 
                 
         asJson slackResponse
 

@@ -4,6 +4,7 @@ Suave
 Chiron
 FSharp.Data
 Hopac
+Http.fs
+
 group Test
-NUnit
-NUnit.Runners
+Expecto
