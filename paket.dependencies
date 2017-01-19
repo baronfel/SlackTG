@@ -3,7 +3,6 @@ redirects: on
 framework: net461
 
 nuget Chiron
-nuget FSharp.Data
 nuget FSharp.Text.RegexProvider
 nuget FSharp.Core
 nuget FParsec
@@ -24,6 +23,7 @@ group Build
 
 group Test
   source https://nuget.org/api/v2
-  
+  redirects: on
   framework: net461
+  
   nuget Expecto

@@ -147,12 +147,19 @@ Target "Build" (fun _ ->
 // Run the unit tests using test runner
 
 Target "RunTests" (fun _ ->
-    !! testAssemblies
-    |> NUnit (fun p ->
-        { p with
-            DisableShadowCopy = true
-            TimeOut = TimeSpan.FromMinutes 20.
-            OutputFile = "TestResults.xml" })
+    let makeParams (exe :string) : ExecParams = 
+        { Program = exe
+          WorkingDirectory = __SOURCE_DIRECTORY__ 
+          CommandLine = ""
+          Args = [] }
+    !! "tests/**/bin/**/*.Tests.exe"
+    |> Seq.fold (fun code exe -> 
+        match code with
+        | n when n = 0 -> 
+            ProcessHelper.shellExec (makeParams exe)
+        | n -> n
+    ) 0 
+    |> exit
 )
 
 #if MONO

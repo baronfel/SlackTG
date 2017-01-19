@@ -16,13 +16,8 @@ open mtgio
 [<Tests>]
 let tests = 
     testList "API" [
-        testCase "can do simple query" <| fun () -> 
-            let query = [
-               //"color", ["green"]
-               "name", ["Avacyn"]
-            ]
-            
-            let response = MTG.handleCards ["name=Avacyn"] |> Async.RunSynchronously
+        testCase "can do simple query" <| fun () ->             
+            let response = MTG.handleCards ["name=Avacyn"; "cmc=gt3"; "color=white"; "color=red"] |> Async.RunSynchronously
             Expect.equal response.ResponseType Slack.OutboundTypes.InChannel "should be in-channel response"
             printfn "%A" response.Attachments
 

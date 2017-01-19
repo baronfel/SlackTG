@@ -2,9 +2,7 @@ FSharp.Text.RegexProvider
 FSharp.Core
 Suave
 Chiron
-FSharp.Data
 Hopac
 Http.fs
-MtgApiManager.Lib
 group Test
 Expecto

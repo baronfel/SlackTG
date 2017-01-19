@@ -16,6 +16,7 @@ module mtgio =
     open Chiron.Formatting
     open Chiron.Operators
     open Serialization
+    open Text
 
     let rooturl = Uri "https://api.magicthegathering.io/v1"
 
@@ -29,8 +30,25 @@ module mtgio =
     
     type ApiCall<'a> = Async<Choice<'a, Error>>
 
+    type NumericComparison = | GT | GTE | LT | LTE | EQ
+    with static member ToQS = function | GT -> "gt" | GTE -> "gte" | LT -> "lt" | LTE -> "lte" | EQ -> ""
+         static member Parse (s : string) = 
+            match s with
+            | Text "gt" -> GT
+            | Text "gte" -> GTE
+            | Text "lt" -> LT
+            | Text "lte" -> LTE
+            | _ -> EQ
+    
+    type BooleanExpression = 
+    | Value of s : string
+    | AND of exprs : BooleanExpression list
+    | OR of exprs : BooleanExpression list
+
     type CardQueryFields = 
     | Name of string list
+    | CMC of int * NumericComparison
+    | Colors of BooleanExpression
 
     type Card = {
         Name : string
@@ -51,9 +69,17 @@ module mtgio =
     
     let joinOR strings = String.concat "|" strings
     let joinAND strings = String.concat "," strings
+
+    let rec evalExpr (expr : BooleanExpression) = 
+        match expr with 
+        | Value s -> s
+        | AND xs -> xs |> List.map evalExpr |> joinAND
+        | OR xs -> xs |> List.map evalExpr |> joinOR
     
     let queryToQS = function
     | Name names -> "name", joinOR names
+    | CMC (value, cmp) -> "cmc", sprintf "%s%d" (NumericComparison.ToQS cmp) value
+    | Colors expr -> "colors", evalExpr expr
 
     let combineUri (source : Uri) (path : string) = 
         let b = UriBuilder(source)
@@ -80,13 +106,8 @@ module MTG =
     open Slack
     open Slack.OutboundTypes
     open mtgio
-
-    type Command = 
-        | Cards of args : Map<string, string list> 
-        | Card of name : string
-        | Help
+    open Text
     
-    let (|Text|_|) (s :string) v = if s.Equals(v, StringComparison.OrdinalIgnoreCase) then Some Text else None
     let makeCardName (parts : string list) = parts |> String.concat " "
 
     let parseCardsArgs (args : string list) =
@@ -107,11 +128,33 @@ module MTG =
     let makeCardResponse (card : Card) : SlackResponse =
         [ { Attachment.simple (card.Name) with Image = Some card.ImageUrl } ] |> SlackResponse.ofAttachments
     
+    let tryParseInt (s : string) = 
+        match Int32.TryParse s with
+        | true, v -> Some v
+        | _ -> None
+    
     let cardArgsToGetParams (p : Map<string, string list>) : CardQueryFields list =
         let matcher l k vs = 
             match k with
             | Text "name" -> Name vs :: l
-            | _ -> l
+            | Text "cmc" ->
+                match vs with
+                | [] -> l
+                | x::_ -> 
+                    let cmp = x |> Seq.takeWhile (Char.IsDigit >> not) |> Seq.toArray |> String |> NumericComparison.Parse
+                    let number = x |> Seq.skipWhile (Char.IsDigit >> not) |> Seq.takeWhile (Char.IsDigit) |> Seq.toArray |> String |> tryParseInt
+                    match number with
+                    | Some n -> CMC(n, cmp) :: l
+                    | None -> l
+            | Text "color" -> 
+                let colors = vs |> List.collect (String.split ',') |> List.collect (String.split '|')
+                match colors with
+                | [] -> l
+                | [x] -> (Colors (Value x)) :: l
+                | xs -> 
+                    let finalExpr = xs |> List.map Value |> OR
+                    Colors finalExpr :: l
+
 
         p |> Map.fold matcher []
 

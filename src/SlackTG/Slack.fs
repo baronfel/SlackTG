@@ -27,6 +27,10 @@ module Serialization =
             |> sprintf "Expected a string containing an absolute URI: %s"
             |> Error
 
+module Text = 
+    open System
+    let (|Text|_|) (s :string) v = if s.Equals(v, StringComparison.OrdinalIgnoreCase) then Some Text else None
+
 module Slack =
     module OutboundTypes =
         open Serialization
