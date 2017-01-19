@@ -129,13 +129,13 @@ module Slack =
             channel : ChannelInfo
             user : UserInfo
             command : string
-            args : string list
+            args : string option
             response_url : System.Uri
         }
 
     type SlackCommand = {
         name : string
         usage : string
-        handler : string list -> Async<OutboundTypes.SlackResponse>
+        handler : string option -> Async<OutboundTypes.SlackResponse>
     }
                 

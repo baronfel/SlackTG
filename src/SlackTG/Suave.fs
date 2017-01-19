@@ -35,18 +35,20 @@ module Suave =
             let! user_id = findInForm "user_id" id
             let! user_name = findInForm "user_name" id
             let! _ = findInForm "command" (fun c -> c.TrimStart('/').ToLowerInvariant())
-            let! args = findInForm "text" (fun argString -> argString.Split([|' '|], System.StringSplitOptions.RemoveEmptyEntries) |> List.ofArray)
+            let! (cmd, args) = findInForm "text" (fun arg -> 
+                                                    let split = arg.IndexOf(' ')
+                                                    if split = -1 && arg.Length > 0
+                                                    then (Some arg, None)
+                                                    else if split = -1 then None, None
+                                                    else (Some (arg.Substring(0, split)), Some (arg.Substring(split + 1)))
+                                            )
             let! response_url = findInForm "response_url" tryParseUri |> Option.bind id
             
             let team = { id = team_id; domain = team_domain }
             let channel = { ChannelInfo.id = channel_id; name = channel_name }
             let user = { UserInfo.id = user_id; name = user_name }
-            let! (command, args) = 
-                match args with
-                | [] -> None
-                | [cmd] -> Some (cmd, [])
-                | cmd::args -> Some (cmd, args)
-            return {token = token; team = team; channel = channel; user = user; command = command; args = args; response_url = response_url}
+            let! cmd = cmd
+            return {token = token; team = team; channel = channel; user = user; command = cmd; args = args; response_url = response_url}
         }
 
     let asJson item : WebPart = 

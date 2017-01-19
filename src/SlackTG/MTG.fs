@@ -215,27 +215,30 @@ module MTG =
 
         p |> Map.fold matcher []
 
-    let handleCard args : Async<SlackResponse> = 
+    let handleCard arg : Async<SlackResponse> = 
+        let cardName = defaultArg arg ""
         async {
-            let! response = mtgio.queryCards (Seq.singleton (mtgio.Name [makeCardName args]))
+            let! response = mtgio.queryCards (Seq.singleton (mtgio.Name [cardName]))
             match response with
             | Choice1Of2 [] -> return makeErrorResponse { error = "could not find a card with that name" }
             | Choice1Of2 (x::_) -> return makeCardResponse x
             | Choice2Of2 err -> return makeErrorResponse err
         }
     
-    let handleCards args : Async<SlackResponse> = 
+    let handleCards arg : Async<SlackResponse> = 
+        //TODO: actual parsing lib here
+        let args = defaultArg (arg |> Option.map (String.split ' ')) []
         async {
             let! response = args |> parseCardsArgs |> cardArgsToGetParams |> mtgio.queryCards
             match response with
             | Choice2Of2 err -> return makeErrorResponse err 
             | Choice1Of2 cards ->  return makeCardsResponse cards
         }
-    let makeBooster args : Async<SlackResponse> = 
+    let makeBooster arg : Async<SlackResponse> = 
         async {
-            match args with
-            | [] -> return makeErrorResponse { error = "gotta specify a set, dude" }
-            | setname::_ -> 
+            match arg with
+            | None -> return makeErrorResponse { error = "gotta specify a set, dude" }
+            | Some setname -> 
                 let! cards = mtgio.makeBooster setname
                 match cards with
                 | Choice2Of2 err -> return makeErrorResponse err
