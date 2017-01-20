@@ -4,5 +4,6 @@ Suave
 Chiron
 Hopac
 Http.fs
+FParsec
 group Test
 Expecto

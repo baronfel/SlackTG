@@ -70,11 +70,6 @@ let tests =
                 let responseType : Slack.OutboundTypes.ResponseType = keys |> Map.find "response_type" |> Json.deserialize
                 Expect.equal Slack.OutboundTypes.ResponseType.InChannel responseType "should be an in-channel message"
             | _ -> failwith "boom"
-        testCase "can parse card args" <| fun () ->
-            let args = ["color=blue"; "color=black"; "cmc=lt2"]
-            let parsed = parseCardsArgs args
-            let expected = Map.empty |> Map.add "color" ["black"; "blue";] |> Map.add "cmc" ["lt2"]
-            Expect.equal parsed expected "should be able to parse sorta-complex args"
         testCase "rarities sort correctly" <| fun () -> 
             let mythic : Rarity = String "Mythic Rare" |> Json.deserialize
             let uncommon : Rarity = String "Uncommon" |> Json.deserialize 
@@ -85,6 +80,46 @@ let tests =
             Expect.equal Rarity.Mythic mythic "mythic is the same"
             Expect.equal Rarity.Uncommon uncommon "uncommon is the same"
             Expect.equal Rarity.Rare rare "rare is the same"
+    ]
+
+open FParsec
+
+let inline run parser s = 
+    match FParsec.CharParsers.runParserOnString parser () "test" s with
+    | ParserResult.Success(r, state, endPos) -> r
+    | ParserResult.Failure(errS, err, state) -> failwith errS
+
+let extractArgs (arg : string) = 
+    Some arg 
+    |> CardArgParser.parseArgs 
+    |> function | Choice2Of2 errS -> failwith errS | Choice1Of2 args -> args
+
+[<Tests>]
+let parse = 
+    testList "parsing" [
+        testCase "can parse all simple colors" <| fun () -> 
+            [White; Blue; Black; Red; Green]
+            |> List.iter (fun color -> 
+                    let input = sprintf "color=%A" color
+                    let output = extractArgs input
+                    Expect.equal 1 output.Length "should only have the one arg"
+                    Expect.equal [Colors(Value (sprintf "%A" color |> String.toLowerInvariant))] output "should parse color" )
+        testCase "can parse or-ed colors" <| fun () -> 
+            extractArgs "color=U|B|W" |> ignore
+        testCase "can parse and-ed colors" <| fun () -> 
+            extractArgs "color=u,b,w" |> ignore 
+        testCase "throws on bad query" <| fun () ->     
+            Expect.throws (fun _ -> extractArgs "color=u,b|W" |> ignore) "should throw if query is malformed"
+        testCase "can parse CMC" <| fun () -> 
+            let parsed = extractArgs "cmc=5"
+            Expect.equal [CMC(5,EQ)] parsed "should parse simple equals"
+        testCase "can parse all explicit comparisons" <| fun () -> 
+            [EQ; LTE; LT; GT; GTE] 
+            |> List.iter (fun cmp -> 
+                let result = extractArgs (sprintf "cmc=%A2" cmp)
+                Expect.equal [CMC(2,cmp)] result (sprintf "comparison %A should parse" cmp) 
+            )
+
     ]
 
 [<EntryPoint>]

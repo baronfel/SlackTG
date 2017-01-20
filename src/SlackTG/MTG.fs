@@ -72,6 +72,16 @@ module mtgio =
             | s ->
                 return! Json.error (sprintf "expected one of: basic land, common, uncommon, rare, mythinc rare, or special. got %s" s)
         }
+    
+    type Color =
+    | White
+    | Blue
+    | Black
+    | Red
+    | Green
+    with
+        static member ToFullString (c : Color) = sprintf "%A" c
+        static member ToShortString = function | White -> "W" | Blue -> "U" | Black -> "B" | Red -> "R" | Green -> "G"
 
     type Card = {
         Name : string
@@ -137,6 +147,58 @@ module mtgio =
         let r = Request.create Get (combineUri rooturl (sprintf "/v1/sets/%s/booster" setname))
         r |> handle |> Async.map (Choice.bind (fun cards -> Choice1Of2 cards.Cards))
 
+[<RequireQualifiedAccess>]
+module CardArgParser = 
+    open mtgio
+    open FParsec
+    open System
+
+    type Parser<'a> = Parser<'a, unit>
+
+
+    // booleans
+    let parseOr pterm termToString = sepBy pterm (pchar '|') |>> fun terms -> terms |> List.map (termToString >> Value) |> OR
+    let parseAnd pterm termToString = sepBy pterm (pchar ',') |>> fun terms -> terms |> List.map (termToString >> Value) |> AND
+
+    // colors
+    let parseSingleColor (short : char) (long : string) (du : Color) : Parser<Color> = skipStringCI long <|> (skipChar short <|> skipChar (Char.ToUpper short)) |>> fun _ -> du
+    let pwhite = parseSingleColor 'w' "white" White
+    let pblue = parseSingleColor 'u' "blue" Blue
+    let pblack = parseSingleColor 'b' "black" Black
+    let pred = parseSingleColor 'r' "red" Red
+    let pgreen = parseSingleColor 'g' "green" Green
+    let pColor = choice [pwhite; pblue; pblack; pred; pgreen]
+    let colorToLower = Color.ToFullString >> String.toLowerInvariant
+    let colorToValue = colorToLower >> Value
+    let pColorQuery = skipStringCI "color=" >>. ((pColor |>> colorToValue) <|> parseOr pColor colorToLower) |>> Colors
+    
+    // CMC
+    let pSkipReturn skip ret = skipStringCI skip >>. preturn ret
+    let plte = pSkipReturn "lte" LTE
+    let pgte = pSkipReturn "gte" GTE
+    let pgt = pSkipReturn "gt" GT
+    let plt = pSkipReturn "lt" LT
+    let peq = pSkipReturn "eq" EQ 
+    let pNumberComparison : Parser<NumericComparison> = choice [plte; pgte; plt; pgt; peq] <|> preturn EQ // numeric comparisons always default to EQ
+    let pCMC = skipStringCI "cmc=" >>. pNumberComparison .>>. pint32 |>> fun (cmp, num) -> CMC(num, cmp)
+    
+    //name
+    //let pName = skipStringCI "name=" >>. p
+
+    let pArg = choice [pColorQuery; pCMC; ] 
+    let pArgs = many (spaces >>. pArg .>> spaces)
+
+    let pResultToChoice = function | Success (r,_,_) -> Choice1Of2 r | Failure (errS,_,_) -> Choice2Of2 errS
+
+
+    let parseArgs (args : string option) = 
+        args 
+        |> Option.map (runParserOnString pArgs () "cardArgs")
+        |> Option.map pResultToChoice
+        |> Option.orDefault (Choice1Of2 [])
+
+
+
 module MTG =   
     open System
     open Slack
@@ -144,20 +206,7 @@ module MTG =
     open mtgio
     open Text
     
-    let makeCardName (parts : string list) = parts |> String.concat " "
-
-    let parseCardsArgs (args : string list) =
-        args
-        |> List.map (String.split '=' >> fun l -> List.item 0 l,  List.item 1 l)
-        |> List.fold (fun m (k,v) ->
-            match m |> Map.tryFind k with
-            | None -> m |> Map.add k [v]
-            | Some vs -> m |> Map.add k (v :: vs)
-        ) Map.empty
-
-    let makeErrorResponse (err : Error) : SlackResponse = 
-        [ Attachment.simple (sprintf "Error: %s" err.error) ] |> SlackResponse.ofAttachments
-    
+    let makeErrorResponse (err : Error) = [ Attachment.simple (sprintf "Error: %s" err.error) ] |> SlackResponse.ofAttachments
     
     let formattedUrl (uri : Uri) (label : string) = sprintf "<%s|%s>" (string uri) label
 
@@ -168,52 +217,14 @@ module MTG =
         |> List.map (fun c -> formattedUrl c.GathererUrl (fancyName c)) 
         |> String.concat "\n" 
         |> Attachment.simple
-        |> List.singleton 
+        |> List.singleton
         |> SlackResponse.ofAttachments
-    
 
     let makeCardResponse (card : Card) : SlackResponse =
         { Attachment.simple (formattedUrl card.GathererUrl (fancyName card)) 
             with Image = Some card.ImageUrl }
         |> List.singleton
         |> SlackResponse.ofAttachments
-    
-    let tryParseInt (s : string) = 
-        match Int32.TryParse s with
-        | true, v -> Some v
-        | _ -> None
-    
-    let cardArgsToGetParams (p : Map<string, string list>) : CardQueryFields list =
-        let unwrapCollection (vs : string list) : BooleanExpression option = 
-            let colors = vs |> List.collect (String.split ',') |> List.collect (String.split '|')
-            match colors with
-            | [] -> None 
-            | [x] -> Some (Value x)
-            | xs -> xs |> List.map Value |> OR |> Some
-
-        let matcher l k vs = 
-            match k with
-            | Text "name" -> Name vs :: l
-            | Text "cmc" ->
-                match vs with
-                | [] -> l
-                | x::_ -> 
-                    let cmp = x |> Seq.takeWhile (Char.IsDigit >> not) |> Seq.toArray |> String |> NumericComparison.Parse
-                    let number = x |> Seq.skipWhile (Char.IsDigit >> not) |> Seq.takeWhile (Char.IsDigit) |> Seq.toArray |> String |> tryParseInt
-                    match number with
-                    | Some n -> CMC(n, cmp) :: l
-                    | None -> l
-            | Text "color" -> 
-                match unwrapCollection vs with
-                | None -> l
-                | Some expr -> Colors expr :: l
-            | Text "text" -> 
-                match unwrapCollection vs with
-                | None -> l
-                | Some expr -> Text expr :: l
-            | _ -> l
-
-        p |> Map.fold matcher []
 
     let handleCard arg : Async<SlackResponse> = 
         let cardName = defaultArg arg ""
@@ -226,13 +237,14 @@ module MTG =
         }
     
     let handleCards arg : Async<SlackResponse> = 
-        //TODO: actual parsing lib here
-        let args = defaultArg (arg |> Option.map (String.split ' ')) []
         async {
-            let! response = args |> parseCardsArgs |> cardArgsToGetParams |> mtgio.queryCards
-            match response with
-            | Choice2Of2 err -> return makeErrorResponse err 
-            | Choice1Of2 cards ->  return makeCardsResponse cards
+            match CardArgParser.parseArgs arg with
+            | Choice2Of2 errS -> return makeErrorResponse { error = errS }
+            | Choice1Of2 args -> 
+                let! response = mtgio.queryCards args
+                match response with
+                | Choice2Of2 err -> return makeErrorResponse err 
+                | Choice1Of2 cards ->  return makeCardsResponse cards
         }
     let makeBooster arg : Async<SlackResponse> = 
         async {
