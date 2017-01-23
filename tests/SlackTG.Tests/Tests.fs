@@ -141,9 +141,24 @@ let parse =
             Expect.equal output expected "should equals, yo"
         
         testCase "can do it with or, too" <| fun () -> 
-            let output = extractArgs "color=u|b cmc=lt2"
-            let expected = [Colors(OR [Value Blue; Value Black]); CMC(2, LT)]
+            let output = extractArgs "color=u|b cmc=lt2 name=Dragonlord Dromoka|\"Dragonlord Silumgar\""
+            let expected = [Colors(OR [Value Blue; Value Black]); CMC(2, LT); Name (OR[Value "Dragonlord Dromoka"; Value "Dragonlord Silumgar"])]
             Expect.equal output expected "should equals, yo"
+
+        testCase "can parse simple name" <| fun () -> 
+            let output = extractArgs "name=\"Ajani Vengeant\""
+            let expected = [Name (Value "Ajani Vengeant")]
+            Expect.equal output expected "can do simple name"
+        
+        testCase "how about name lists" <| fun () -> 
+            let output = extractArgs "name=\"Ezuri, Claw of Vengance\"|Avacyn the Purifier"
+            let expected = [Name (OR[Value "Ezuri, Claw of Vengance"; Value "Avacyn the Purifier"])]
+            Expect.equal output expected "can do complex names"
+        
+        testCase "name??" <| fun () -> 
+            let output = run CardArgParser.pname "\"Ezuri\""
+            let expected = "Ezuri"
+            Expect.equal output expected  "name should parse"
             
     ]
 

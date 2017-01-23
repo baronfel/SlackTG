@@ -78,7 +78,7 @@ module mtgio =
         static member ToShortString = function | White -> "W" | Blue -> "U" | Black -> "B" | Red -> "R" | Green -> "G"
 
     type CardQueryFields = 
-    | Name of string list
+    | Name of string BooleanExpression
     | CMC of int * NumericComparison
     | Colors of Color BooleanExpression
     | Text of string BooleanExpression
@@ -119,7 +119,7 @@ module mtgio =
     
     let queryToQS query = 
         match query with
-        | Name names -> "name", joinOR names
+        | Name names -> "name", evalExpr id names
         | CMC (value, cmp) -> "cmc", sprintf "%s%d" (NumericComparison.ToQS cmp) value
         | Colors expr -> "colors", evalExpr Color.ToFullString expr
         | Text expr -> "text", evalExpr id expr
@@ -189,6 +189,7 @@ module CardArgParser =
     let pConjunction pterm psplitter conj = sepByMustSep pterm psplitter |>> (List.map Value >> conj)
     let pOr pterm = pConjunction pterm (pstringCI "|") OR
     let pAnd pterm = pConjunction pterm (pstringCI ",") AND
+    let thenEoFOrSpaces = followedBy eof <|> followedBy spaces1
 
     // colors
     let parseSingleColor (short : char) (long : string) (du : Color) : Parser<Color> = skipStringCI long <|> (skipChar short <|> skipChar (Char.ToUpper short)) >>% du
@@ -200,8 +201,7 @@ module CardArgParser =
     let pColor = choice [pwhite; pblue; pblack; pred; pgreen]
     let pColorQuery = 
         skipStringCI "color=" 
-        // TODO: figure out how to make the Or parser (and eventually the And parser) not super-greedy
-        >>. choice [ attempt (pColor .>> (followedBy eof <|> followedBy spaces1)) |>> Value
+        >>. choice [ attempt (pColor .>> thenEoFOrSpaces) |>> Value
                      attempt (pAnd pColor)
                      pOr pColor ]
         |>> Colors
@@ -217,10 +217,19 @@ module CardArgParser =
     let pCMC = skipStringCI "cmc=" >>. pNumberComparison .>>. pint32 |>> fun (cmp, num) -> CMC(num, cmp)
     
     //name
-    //let pName = skipStringCI "name=" >>. p
+    let unquoted = manySatisfy (fun c -> isLetter c || Char.IsWhiteSpace c || c = ',')
+    let quoted p : Parser<string> =  between (pchar '"') (pchar '"') p
+    let pname = quoted unquoted <|> unquoted
+    let pNameQuery = 
+        
+        skipStringCI "name=" 
+        >>. choice [ attempt (pname .>> thenEoFOrSpaces) |>> Value
+                     attempt (pAnd pname)
+                     pOr pname ]
+        |>> Name
 
     // general query parsing entry point
-    let pArg = choice [pColorQuery; pCMC; ] 
+    let pArg = choice [pColorQuery; pCMC; pNameQuery; ] 
     let pArgs = many (spaces >>. pArg)
 
     let pResultToChoice = function | Success (r,_,_) -> Choice1Of2 r | Failure (errS,_,_) -> Choice2Of2 errS
@@ -261,7 +270,7 @@ module MTG =
     let handleCard arg : Async<SlackResponse> = 
         let cardName = defaultArg arg ""
         async {
-            let! response = mtgio.queryCards (Seq.singleton (mtgio.Name [cardName]))
+            let! response = mtgio.queryCards (Seq.singleton (mtgio.Name (Value cardName)))
             match response with
             | Choice1Of2 [] -> return makeErrorResponse { error = "could not find a card with that name" }
             | Choice1Of2 (x::_) -> return makeCardResponse x
