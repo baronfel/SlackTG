@@ -40,16 +40,10 @@ module mtgio =
             | Text "lte" -> LTE
             | _ -> EQ
     
-    type BooleanExpression = 
-    | Value of s : string
-    | AND of exprs : BooleanExpression list
-    | OR of exprs : BooleanExpression list
-
-    type CardQueryFields = 
-    | Name of string list
-    | CMC of int * NumericComparison
-    | Colors of BooleanExpression
-    | Text of BooleanExpression
+    type 'a BooleanExpression = 
+    | Value of inner : 'a
+    | AND of exprs : ('a BooleanExpression) list
+    | OR of exprs : ('a BooleanExpression) list
 
     type Rarity =
     | BasicLand
@@ -59,20 +53,20 @@ module mtgio =
     | Mythic
     | Special
     with 
-      static member FromJson (_ : Rarity) = 
-        json {
-            let! s = Json.Optic.get Json.String_
-            match s with
-            | Text.Text "basic land" -> return BasicLand
-            | Text.Text "common" -> return Common
-            | Text.Text "uncommon" -> return Uncommon
-            | Text.Text "rare" -> return Rare
-            | Text.Text "mythic rare" -> return Mythic
-            | Text.Text "special" -> return Special
-            | s ->
-                return! Json.error (sprintf "expected one of: basic land, common, uncommon, rare, mythinc rare, or special. got %s" s)
-        }
-    
+        static member FromJson (_ : Rarity) = 
+            json {
+                let! s = Json.Optic.get Json.String_
+                match s with
+                | Text.Text "basic land" -> return BasicLand
+                | Text.Text "common" -> return Common
+                | Text.Text "uncommon" -> return Uncommon
+                | Text.Text "rare" -> return Rare
+                | Text.Text "mythic rare" -> return Mythic
+                | Text.Text "special" -> return Special
+                | s ->
+                    return! Json.error (sprintf "expected one of: basic land, common, uncommon, rare, mythinc rare, or special. got %s" s)
+            }
+
     type Color =
     | White
     | Blue
@@ -83,6 +77,12 @@ module mtgio =
         static member ToFullString (c : Color) = sprintf "%A" c
         static member ToShortString = function | White -> "W" | Blue -> "U" | Black -> "B" | Red -> "R" | Green -> "G"
 
+    type CardQueryFields = 
+    | Name of string list
+    | CMC of int * NumericComparison
+    | Colors of Color BooleanExpression
+    | Text of string BooleanExpression
+    
     type Card = {
         Name : string
         ImageUrl : Uri
@@ -108,20 +108,21 @@ module mtgio =
             fun cards -> { Cards = cards }
             <!> Json.read "cards"
     
-    let joinOR strings = String.concat "|" strings
-    let joinAND strings = String.concat "," strings
+    let joinOR = String.concat "|"
+    let joinAND = String.concat ","
 
-    let rec evalExpr (expr : BooleanExpression) = 
+    let rec evalExpr (stringer : 'a -> string) expr = 
         match expr with 
-        | Value s -> s
-        | AND xs -> xs |> List.map evalExpr |> joinAND
-        | OR xs -> xs |> List.map evalExpr |> joinOR
+        | Value s -> stringer s
+        | AND xs -> xs |> List.map (evalExpr stringer) |> joinAND
+        | OR xs -> xs |> List.map (evalExpr stringer) |> joinOR
     
-    let queryToQS = function
-    | Name names -> "name", joinOR names
-    | CMC (value, cmp) -> "cmc", sprintf "%s%d" (NumericComparison.ToQS cmp) value
-    | Colors expr -> "colors", evalExpr expr
-    | Text expr -> "text", evalExpr expr
+    let queryToQS query = 
+        match query with
+        | Name names -> "name", joinOR names
+        | CMC (value, cmp) -> "cmc", sprintf "%s%d" (NumericComparison.ToQS cmp) value
+        | Colors expr -> "colors", evalExpr Color.ToFullString expr
+        | Text expr -> "text", evalExpr id expr
 
     let combineUri (source : Uri) (path : string) = 
         let b = UriBuilder(source)
@@ -155,49 +156,80 @@ module CardArgParser =
 
     type Parser<'a> = Parser<'a, unit>
 
+    /// given a parser `p` and a separator `sep`, `sepByMustSep p sep` parses one or more instances of `p`, as long as `sep` is matched at least once
+    let sepByMustSep (p : Parser<'a,'state>) (sep : Parser<'b,'state>) : Parser<'a list,'state> = 
+        let rec parseInternal hasParsedSep (current : 'a list) : CharStream<'state> -> Reply<'a list> = 
+            fun (stream : CharStream<'state>) -> 
+                let result = p stream
+                if result.Status = Ok
+                then 
+                    let sepResult = sep stream
+                    match sepResult.Status, hasParsedSep with
+                    | Ok, _ -> 
+                        // if we match the separator, parse another element
+                        let resp = parseInternal true (result.Result :: current) stream
+                        Reply(Ok, resp.Result, result.Error)
+                    | Error, true -> 
+                        // if we didn't match the separator but we have in the past we've come to the end of the list
+                        Reply(Ok, result.Result :: current, result.Error)
+                    | Error, false -> 
+                        // if we didn't match the separator, and never have, fail the parser
+                        Reply(Error, sepResult.Error)
+                    | _,_ ->
+                        Reply(Error, sepResult.Error)
+                else
+                    Reply(Error, result.Error)
+                    
+        parse {
+            let! ps = parseInternal false []
+            return List.rev ps
+        }
 
     // booleans
-    let parseOr pterm termToString = sepBy pterm (pchar '|') |>> fun terms -> terms |> List.map (termToString >> Value) |> OR
-    let parseAnd pterm termToString = sepBy pterm (pchar ',') |>> fun terms -> terms |> List.map (termToString >> Value) |> AND
+    let pConjunction pterm psplitter conj = sepByMustSep pterm psplitter |>> (List.map Value >> conj)
+    let pOr pterm = pConjunction pterm (pstringCI "|") OR
+    let pAnd pterm = pConjunction pterm (pstringCI ",") AND
 
     // colors
-    let parseSingleColor (short : char) (long : string) (du : Color) : Parser<Color> = skipStringCI long <|> (skipChar short <|> skipChar (Char.ToUpper short)) |>> fun _ -> du
+    let parseSingleColor (short : char) (long : string) (du : Color) : Parser<Color> = skipStringCI long <|> (skipChar short <|> skipChar (Char.ToUpper short)) >>% du
     let pwhite = parseSingleColor 'w' "white" White
     let pblue = parseSingleColor 'u' "blue" Blue
     let pblack = parseSingleColor 'b' "black" Black
     let pred = parseSingleColor 'r' "red" Red
     let pgreen = parseSingleColor 'g' "green" Green
     let pColor = choice [pwhite; pblue; pblack; pred; pgreen]
-    let colorToLower = Color.ToFullString >> String.toLowerInvariant
-    let colorToValue = colorToLower >> Value
-    let pColorQuery = skipStringCI "color=" >>. ((pColor |>> colorToValue) <|> parseOr pColor colorToLower) |>> Colors
+    let pColorQuery = 
+        skipStringCI "color=" 
+        // TODO: figure out how to make the Or parser (and eventually the And parser) not super-greedy
+        >>. choice [ attempt (pColor .>> (followedBy eof <|> followedBy spaces1)) |>> Value
+                     attempt (pAnd pColor)
+                     pOr pColor ]
+        |>> Colors
     
     // CMC
-    let pSkipReturn skip ret = skipStringCI skip >>. preturn ret
+    let pSkipReturn skip ret = skipStringCI skip >>% ret
     let plte = pSkipReturn "lte" LTE
     let pgte = pSkipReturn "gte" GTE
     let pgt = pSkipReturn "gt" GT
     let plt = pSkipReturn "lt" LT
     let peq = pSkipReturn "eq" EQ 
-    let pNumberComparison : Parser<NumericComparison> = choice [plte; pgte; plt; pgt; peq] <|> preturn EQ // numeric comparisons always default to EQ
+    let pNumberComparison : Parser<NumericComparison> = choice [plte; pgte; plt; pgt; peq] <|>% EQ // numeric comparisons always default to EQ
     let pCMC = skipStringCI "cmc=" >>. pNumberComparison .>>. pint32 |>> fun (cmp, num) -> CMC(num, cmp)
     
     //name
     //let pName = skipStringCI "name=" >>. p
 
+    // general query parsing entry point
     let pArg = choice [pColorQuery; pCMC; ] 
-    let pArgs = many (spaces >>. pArg .>> spaces)
+    let pArgs = many (spaces >>. pArg)
 
     let pResultToChoice = function | Success (r,_,_) -> Choice1Of2 r | Failure (errS,_,_) -> Choice2Of2 errS
-
 
     let parseArgs (args : string option) = 
         args 
         |> Option.map (runParserOnString pArgs () "cardArgs")
         |> Option.map pResultToChoice
         |> Option.orDefault (Choice1Of2 [])
-
-
 
 module MTG =   
     open System

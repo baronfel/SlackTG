@@ -102,24 +102,49 @@ let parse =
             |> List.iter (fun color -> 
                     let input = sprintf "color=%A" color
                     let output = extractArgs input
+                    let expected = [Colors(Value color)]
                     Expect.equal 1 output.Length "should only have the one arg"
-                    Expect.equal [Colors(Value (sprintf "%A" color |> String.toLowerInvariant))] output "should parse color" )
+                    Expect.equal output expected "should parse color" )
+        
+        testCase "can parse and of stuff" <| fun () -> 
+            let fooParser = CardArgParser.pOr (pstringCI "foo")
+            let output = run fooParser "foo|foo|foo"
+            let expected = OR [Value "foo"; Value "foo"; Value "foo"]
+            Expect.equal output expected "can get the foos"
+
         testCase "can parse or-ed colors" <| fun () -> 
-            extractArgs "color=U|B|W" |> ignore
+            let output = run (CardArgParser.pOr CardArgParser.pColor) "U|B|W"
+            let expected = OR([Value Blue; Value Black; Value White])
+            Expect.equal output expected  "or-d colors should parse"
+
         testCase "can parse and-ed colors" <| fun () -> 
-            extractArgs "color=u,b,w" |> ignore 
+            let output = run (CardArgParser.pAnd CardArgParser.pColor) "u,b,w"
+            let expected = AND([Value Blue; Value Black; Value White])
+            Expect.equal output expected "and-d colors should parse"
+
         testCase "throws on bad query" <| fun () ->     
             Expect.throws (fun _ -> extractArgs "color=u,b|W" |> ignore) "should throw if query is malformed"
+
         testCase "can parse CMC" <| fun () -> 
             let parsed = extractArgs "cmc=5"
             Expect.equal [CMC(5,EQ)] parsed "should parse simple equals"
+
         testCase "can parse all explicit comparisons" <| fun () -> 
             [EQ; LTE; LT; GT; GTE] 
             |> List.iter (fun cmp -> 
                 let result = extractArgs (sprintf "cmc=%A2" cmp)
-                Expect.equal [CMC(2,cmp)] result (sprintf "comparison %A should parse" cmp) 
-            )
+                Expect.equal [CMC(2,cmp)] result (sprintf "comparison %A should parse" cmp))
 
+        testCase "can parse complex, multi-condition query" <| fun () -> 
+            let output = extractArgs "color=u,b cmc=lt2"
+            let expected = [Colors(AND([Value Blue; Value Black])); CMC(2, LT)]
+            Expect.equal output expected "should equals, yo"
+        
+        testCase "can do it with or, too" <| fun () -> 
+            let output = extractArgs "color=u|b cmc=lt2"
+            let expected = [Colors(OR [Value Blue; Value Black]); CMC(2, LT)]
+            Expect.equal output expected "should equals, yo"
+            
     ]
 
 [<EntryPoint>]
